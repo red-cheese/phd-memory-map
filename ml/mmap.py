@@ -1,0 +1,88 @@
+
+
+import keras
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import seaborn as sns
+
+
+class MemoryMap(keras.callbacks.Callback):
+    """
+    Memory map of batch losses within one epoch.
+    """
+
+    _MAX_LOSS = 2000
+    _MIN_LOSS = -2000
+
+    def __init__(self, all_data, all_labels, model):
+        assert len(all_data) == len(all_labels)
+        assert len(all_data) % model.batch_size == 0
+
+        super(MemoryMap, self).__init__()
+
+        self.batch_size = model.batch_size
+        num_batches = int(len(all_data) / self.batch_size)
+        self.K = num_batches
+
+        self.model = model
+        self.all_data = all_data
+        self.all_labels = all_labels
+
+        # Rows: batches (fixed).
+        # Columns: losses after each gradient step.
+        # self.mmap[i, j] = loss on batch i after gradient update on batch j has been done.
+        self.mmap = np.zeros(shape=(self.K, self.K))
+
+        self.cur_batch_id = -1  # Will start with the mini-batch 0.
+        self.cur_epoch_id = -1
+
+        self.mmap_dir = os.path.join(model.model_dir, 'mmap')
+        if not os.path.isdir(self.mmap_dir):
+            os.makedirs(self.mmap_dir)
+
+    def on_batch_begin(self, batch, logs=None):
+        self.cur_batch_id += 1
+
+        if self.cur_batch_id % 100 == 0:
+            print('Starting batch', self.cur_batch_id)
+
+    def on_batch_end(self, batch, logs=None):
+        for i in range(self.K):
+            batch_start = i * self.batch_size
+            batch_end = batch_start + self.batch_size
+            b = self.all_data[batch_start:batch_end, ...]
+            l = self.all_labels[batch_start:batch_end]
+            loss = self.model.calc_loss(b, l)
+            self.mmap[i, self.cur_batch_id] = loss
+
+        if self.cur_batch_id % 100 == 0:
+            print('Ending batch', self.cur_batch_id)
+
+    def on_epoch_begin(self, epoch, logs=None):
+        self.cur_epoch_id += 1
+        print('Starting epoch', self.cur_epoch_id)
+
+    def on_epoch_end(self, epoch, logs=None):
+        mmap = self.mmap
+
+        isnan = np.isnan(mmap)
+        if isnan.all():
+            mmap[:, :] = self._MAX_LOSS
+        else:
+            nanmax, nanmin = min(np.nanmax(mmap), self._MAX_LOSS), max(np.nanmin(mmap), self._MIN_LOSS)
+            mmap[isnan] = nanmax
+            mmap = np.clip(mmap, nanmin, nanmax)
+
+        sns.heatmap(mmap, xticklabels=self.K // 10, yticklabels=self.K // 10, cmap="YlGnBu")
+        plt.title('Mini-batch losses: epoch {}'.format(self.cur_epoch_id + 1))
+        plt.ylabel('Mini-batch')
+        plt.xlabel('Training step')
+        plt.savefig(os.path.join(self.mmap_dir,
+                                 'epoch{}.png'.format(self.cur_epoch_id + 1)),
+                    dpi=300)
+        plt.gcf().clear()
+
+        print('Ending epoch', self.cur_epoch_id)
+        self.mmap = np.zeros(shape=(self.K, self.K))
+        self.cur_batch_id = -1
