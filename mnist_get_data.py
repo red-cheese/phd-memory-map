@@ -10,7 +10,7 @@ import numpy as np
 RAW_DATA_DIR = './data/raw'
 
 
-def get_class_data(class_label, train=True):
+def get_class_data(class_label, train=True, batch_size=None, max_num=None):
     print('Get data for class', class_label, '; train =', train)
 
     mndata = mnist.MNIST(RAW_DATA_DIR)
@@ -23,10 +23,17 @@ def get_class_data(class_label, train=True):
     for img, label in zip(images, labels):
         if label == class_label:
             class_images.append(np.array(img, dtype=np.int64))
+            if max_num is not None and len(class_images) >= max_num:
+                break
     # np.random.shuffle(class_images)  # TODO DO shuffle.
+    print('Total number of entries:', len(class_images))
 
-    print('Number of entries:', len(class_images))
-    return class_images
+    if batch_size is not None:
+        crop = len(class_images) - (len(class_images) % batch_size)
+        class_images = class_images[:crop]
+        print('Cropped number of entries:', len(class_images))
+
+    return np.asarray(class_images, dtype=np.int64)
 
 
 def main():

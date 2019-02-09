@@ -15,13 +15,13 @@ class MemoryMap(keras.callbacks.Callback):
     _MAX_LOSS = 2000
     _MIN_LOSS = -2000
 
-    def __init__(self, all_data, all_labels, model):
+    def __init__(self, all_data, all_labels, model, batch_size, model_dir):
         assert len(all_data) == len(all_labels)
-        assert len(all_data) % model.batch_size == 0
+        assert len(all_data) % batch_size == 0
 
         super(MemoryMap, self).__init__()
 
-        self.batch_size = model.batch_size
+        self.batch_size = batch_size
         num_batches = int(len(all_data) / self.batch_size)
         self.K = num_batches
 
@@ -37,15 +37,12 @@ class MemoryMap(keras.callbacks.Callback):
         self.cur_batch_id = -1  # Will start with the mini-batch 0.
         self.cur_epoch_id = -1
 
-        self.mmap_dir = os.path.join(model.model_dir, 'mmap')
+        self.mmap_dir = os.path.join(model_dir, 'mmap')
         if not os.path.isdir(self.mmap_dir):
             os.makedirs(self.mmap_dir)
 
     def on_batch_begin(self, batch, logs=None):
         self.cur_batch_id += 1
-
-        if self.cur_batch_id % 100 == 0:
-            print('Starting batch', self.cur_batch_id)
 
     def on_batch_end(self, batch, logs=None):
         for i in range(self.K):
@@ -53,15 +50,11 @@ class MemoryMap(keras.callbacks.Callback):
             batch_end = batch_start + self.batch_size
             b = self.all_data[batch_start:batch_end, ...]
             l = self.all_labels[batch_start:batch_end]
-            loss = self.model.calc_loss(b, l)
-            self.mmap[i, self.cur_batch_id] = loss
-
-        if self.cur_batch_id % 100 == 0:
-            print('Ending batch', self.cur_batch_id)
+            loss = self.model.evaluate(b, l, verbose=0, batch_size=self.batch_size)
+            self.mmap[i, self.cur_batch_id] = loss[0]
 
     def on_epoch_begin(self, epoch, logs=None):
         self.cur_epoch_id += 1
-        print('Starting epoch', self.cur_epoch_id)
 
     def on_epoch_end(self, epoch, logs=None):
         mmap = self.mmap
@@ -80,9 +73,9 @@ class MemoryMap(keras.callbacks.Callback):
         plt.xlabel('Training step')
         plt.savefig(os.path.join(self.mmap_dir,
                                  'epoch{}.png'.format(self.cur_epoch_id + 1)),
-                    dpi=300)
+                    dpi=150)
         plt.gcf().clear()
 
-        print('Ending epoch', self.cur_epoch_id)
+        # Reset memory map for the next epoch.
         self.mmap = np.zeros(shape=(self.K, self.K))
         self.cur_batch_id = -1
