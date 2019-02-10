@@ -3,6 +3,7 @@ http://yann.lecun.com/exdb/mnist/
 """
 
 
+from keras import utils
 import mnist
 import numpy as np
 
@@ -25,7 +26,7 @@ def get_class_data(class_label, train=True, batch_size=None, max_num=None):
             class_images.append(np.array(img, dtype=np.int64))
             if max_num is not None and len(class_images) >= max_num:
                 break
-    # np.random.shuffle(class_images)  # TODO DO shuffle.
+    # np.random.shuffle(class_images)
     print('Total number of entries:', len(class_images))
 
     if batch_size is not None:
@@ -33,7 +34,20 @@ def get_class_data(class_label, train=True, batch_size=None, max_num=None):
         class_images = class_images[:crop]
         print('Cropped number of entries:', len(class_images))
 
+    print('Samples:')
+    print(mndata.display(class_images[0]))
+    print(mndata.display(class_images[24]))
+    print(mndata.display(class_images[-1]))
+
     return np.asarray(class_images, dtype=np.int64)
+
+
+def generate_class_labels(class_label, n, num_classes):
+    assert class_label < num_classes
+    labels = np.zeros(shape=(n,), dtype=np.int64)
+    labels[:] = class_label
+    labels = utils.to_categorical(labels, num_classes)
+    return labels
 
 
 def main():

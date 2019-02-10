@@ -7,7 +7,7 @@ from ml import mmap
 class BaseModel:
 
     _DEFAULT_BATCH_SIZE = 64
-    _DEFAULT_NUM_EPOCHS = 10
+    _DEFAULT_NUM_EPOCHS = 3
 
     def __init__(self, *args, **kwargs):
         self.model, self.model_dir = self.build_model(*args, **kwargs)
@@ -18,6 +18,8 @@ class BaseModel:
     def fit(self, x, y, batch_size=_DEFAULT_BATCH_SIZE, num_epochs=_DEFAULT_NUM_EPOCHS):
         if not os.path.isdir(self.model_dir):
             os.makedirs(self.model_dir)
+
+        print('Training set shape:', x.shape)
 
         mmap_callback = mmap.MemoryMap(
             all_data=x, all_labels=y, model=self.model,

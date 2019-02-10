@@ -52,6 +52,7 @@ class MemoryMap(keras.callbacks.Callback):
             l = self.all_labels[batch_start:batch_end]
             loss = self.model.evaluate(b, l, verbose=0, batch_size=self.batch_size)
             self.mmap[i, self.cur_batch_id] = loss[0]
+            print('LOSS after training step', batch, '=', loss)
 
     def on_epoch_begin(self, epoch, logs=None):
         self.cur_epoch_id += 1
@@ -77,5 +78,5 @@ class MemoryMap(keras.callbacks.Callback):
         plt.gcf().clear()
 
         # Reset memory map for the next epoch.
-        self.mmap = np.zeros(shape=(self.K, self.K))
+        self.mmap = np.zeros(shape=(self.K, self.K))  # TODO Normalise the mmap at the very end?
         self.cur_batch_id = -1
