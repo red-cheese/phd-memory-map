@@ -1,0 +1,7 @@
+1. Will any kind of regularisation help us see gradual changes on mmaps, rather than stripes?
+
+2. Will a different batch size help us see these gradual changes?
+
+3. Why doesn't introducing a new class distort the NN?
+   Is it because of the huge 1st gradient step?
+   Is it because the capacity of the net is too big and we overfit?
