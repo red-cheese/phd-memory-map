@@ -5,3 +5,6 @@
 3. Why doesn't introducing a new class distort the NN?
    Is it because of the huge 1st gradient step?
    Is it because the capacity of the net is too big and we overfit?
+
+4. What happens if we never see the first class (e.g. 0) ever again after the first set of batches?
+
