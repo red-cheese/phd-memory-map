@@ -52,7 +52,7 @@ class MemoryMap(keras.callbacks.Callback):
             l = self.all_labels[batch_start:batch_end]
             loss = self.model.evaluate(b, l, verbose=0, batch_size=self.batch_size)
             self.mmap[i, self.cur_batch_id] = loss[0]
-            print('LOSS after training step', batch, '=', loss)
+            # print('LOSS after training step', batch, 'on batch', i, '=', loss)
 
     def on_epoch_begin(self, epoch, logs=None):
         self.cur_epoch_id += 1

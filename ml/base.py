@@ -7,7 +7,7 @@ from ml import mmap
 class BaseModel:
 
     _DEFAULT_BATCH_SIZE = 64
-    _DEFAULT_NUM_EPOCHS = 3
+    _DEFAULT_NUM_EPOCHS = 5
 
     def __init__(self, *args, **kwargs):
         self.model, self.model_dir = self.build_model(*args, **kwargs)
@@ -33,4 +33,4 @@ class BaseModel:
         self.model.save_weights(model_filepath, overwrite=True)
 
     def evaluate(self, x, y):
-        self.model.evaluate(x, y)
+        return self.model.evaluate(x, y)

@@ -2,15 +2,17 @@
 Experiments with memory maps on the MNIST dataset.
 """
 
+# Set seeds first, even though it is practically useless because there is no
+# reproducibility in keras + tf anyway.
+# Also it is a mystery why the DNN can't train properly with certain seeds.
+import random
+random.seed(1)
+import numpy as np
+np.random.seed(1)
 
 import mnist_get_data
-import numpy as np
-import random
 from ml import dense
 from ml import evaluate
-
-random.seed(0)
-np.random.seed(0)
 
 
 BATCH_SIZE = 64
@@ -34,7 +36,7 @@ def classify_2(digit_A, digit_B):
     train_B_data = mnist_get_data.get_class_data(digit_B, train=True, batch_size=BATCH_SIZE, max_num=3000)
 
     # Combine into one training dataset.
-    n_batches = 10  # Will do n_batches of A, then n_batches of B, ...
+    n_batches = 20  # Will do n_batches of A, then n_batches of B, ...
     min_len = min(train_A_data.shape[0], train_B_data.shape[0])
     i = 0
     train_data = np.array([], dtype=np.int64).reshape((0, train_A_data.shape[1]))
@@ -51,6 +53,10 @@ def classify_2(digit_A, digit_B):
 
     dense_nn = dense.DenseNN(input_dim=train_A_data.shape[1], classes=[digit_A, digit_B], batch_size=BATCH_SIZE)
     dense_nn.fit(train_data, train_labels)
+
+    print('=====')
+    print('Evaluate:')
+    print(dense_nn.evaluate(train_data, train_labels))
 
 
 def main():
