@@ -113,17 +113,21 @@ def mislabel_classify_2(digit_A, digit_B):
     # Radically mislabel several batches in the middle of the training set.
     num_batches = train_data.shape[0] // BATCH_SIZE
     distorted_train_labels = np.copy(true_train_labels)
-    # start_distort_batch = num_batches // 2 - 2
-    # end_distort_batch = num_batches // 2 + 2
-    # print('Distort batches from', start_distort_batch, 'to', end_distort_batch)
-    # start_distort = start_distort_batch * BATCH_SIZE
-    # end_distort = (end_distort_batch + 1) * BATCH_SIZE
-    # print('Distort entries from', start_distort, 'to', end_distort)
+    start_distort_batch = num_batches // 2 - 2
+    end_distort_batch = num_batches // 2 + 2
+    print('Distort batches from', start_distort_batch, 'to', end_distort_batch)
+    start_distort = start_distort_batch * BATCH_SIZE
+    end_distort = (end_distort_batch + 1) * BATCH_SIZE
+    print('Distort entries from', start_distort, 'to', end_distort)
+    # Option 1 - Distort all entries to the opposite class.
     # distorted_train_labels[start_distort:end_distort, :] = (distorted_train_labels[start_distort:end_distort, :] + 1) % 2
+    # Option 2 - Distort just one class.
+    distorted_train_labels[start_distort:end_distort, 0] = 0
+    distorted_train_labels[start_distort:end_distort, 1] = 1
 
     # Fit the model and build the memory map.
     dense_nn = dense.DenseNN(input_dim=train_data.shape[1], classes=[digit_A, digit_B], batch_size=BATCH_SIZE)
-    dense_nn.fit(train_data, true_train_labels.astype(np.int32),
+    dense_nn.fit(train_data, distorted_train_labels.astype(np.int32),
                  validation_data=(test_data, test_labels))
 
     print('=====')
