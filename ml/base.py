@@ -15,7 +15,8 @@ class BaseModel:
     def build_model(self, *args, **kwargs):
         raise NotImplementedError
 
-    def fit(self, x, y, batch_size=_DEFAULT_BATCH_SIZE, num_epochs=_DEFAULT_NUM_EPOCHS):
+    def fit(self, x, y, validation_data=None, batch_size=_DEFAULT_BATCH_SIZE,
+            num_epochs=_DEFAULT_NUM_EPOCHS):
         if not os.path.isdir(self.model_dir):
             os.makedirs(self.model_dir)
 
@@ -26,6 +27,7 @@ class BaseModel:
             batch_size=batch_size, model_dir=self.model_dir)
         self.model.fit(x=x, y=y, batch_size=batch_size, verbose=1,
                        callbacks=[mmap_callback], epochs=num_epochs,
+                       validation_data=validation_data,
                        # shuffle=False for memory maps!
                        shuffle=False)
 
