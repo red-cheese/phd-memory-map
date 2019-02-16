@@ -18,7 +18,7 @@ from ml import evaluate
 BATCH_SIZE = 64
 
 
-def classify_2(digit_A, digit_B, num_batches_A, num_batches_B):
+def obsolete_classify_2(digit_A, digit_B, num_batches_A, num_batches_B):
     """
     Alternating batches that consist solely of one of the two given digits:
         num_batches_A batches of A ->
@@ -65,7 +65,7 @@ def classify_2(digit_A, digit_B, num_batches_A, num_batches_B):
 
 
 def main():
-    classify_2(digit_A=0, digit_B=1, num_batches_A=1, num_batches_B=1)
+    obsolete_classify_2(digit_A=0, digit_B=1, num_batches_A=1, num_batches_B=1)
 
 
 if __name__ == '__main__':

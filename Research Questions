@@ -8,3 +8,12 @@
 
 4. What happens if we never see the first class (e.g. 0) ever again after the first set of batches?
 
+^ The initial experiment with batches of just one class was incorrect because:
+a) the model can only optimise the relation between the two classes,
+b) the model accounted for two classes and was not misspecified.
+
+
+************
+
+
+
