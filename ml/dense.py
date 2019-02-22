@@ -6,7 +6,7 @@ See https://github.com/keras-team/keras/blob/master/examples/mnist_mlp.py.
 
 from keras.layers import Dense, Dropout
 from keras.models import Sequential
-from keras.optimizers import Adam
+from keras.optimizers import SGD
 from ml import base
 
 
@@ -23,7 +23,7 @@ class DenseNN(base.BaseModel):
         model.summary()
 
         model.compile(loss='categorical_crossentropy',
-                      optimizer=Adam(),
+                      optimizer=SGD(),
                       metrics=['accuracy'])
 
         model_dir = 'Dense_inputdim={}_classes={}_batch={}'.format(

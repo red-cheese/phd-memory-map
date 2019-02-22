@@ -1,5 +1,5 @@
 """
-Experiments with memory maps on the MNIST dataset.
+Experiments with memory maps on the MNIST dataset (supervised classification).
 """
 
 # Set seeds first, even though it is practically useless because there is no
@@ -120,10 +120,10 @@ def mislabel_classify_2(digit_A, digit_B):
     end_distort = (end_distort_batch + 1) * BATCH_SIZE
     print('Distort entries from', start_distort, 'to', end_distort)
     # Option 1 - Distort all entries to the opposite class.
-    # distorted_train_labels[start_distort:end_distort, :] = (distorted_train_labels[start_distort:end_distort, :] + 1) % 2
+    distorted_train_labels[start_distort:end_distort, :] = (distorted_train_labels[start_distort:end_distort, :] + 1) % 2
     # Option 2 - Distort just one class.
-    distorted_train_labels[start_distort:end_distort, 0] = 0
-    distorted_train_labels[start_distort:end_distort, 1] = 1
+    # distorted_train_labels[start_distort:end_distort, 0] = 0
+    # distorted_train_labels[start_distort:end_distort, 1] = 1
 
     # Fit the model and build the memory map.
     dense_nn = dense.DenseNN(input_dim=train_data.shape[1], classes=[digit_A, digit_B], batch_size=BATCH_SIZE)
