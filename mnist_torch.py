@@ -1,3 +1,7 @@
+"""
+Pytorch MNIST example.
+Mostly copypasted from https://github.com/pytorch/examples/blob/master/mnist/main.py.
+"""
 
 
 import torch
@@ -15,19 +19,15 @@ BATCH_SIZE = 64
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 20, 5, 1)  # TODO Do Dense
-        self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        self.fc1 = nn.Linear(4*4*50, 500)
-        self.fc2 = nn.Linear(500, 10)
+        self.dense1 = nn.Linear(in_features=784, out_features=256, bias=True)
+        self.dense2 = nn.Linear(in_features=256, out_features=128, bias=True)
+        self.dense3 = nn.Linear(in_features=128, out_features=10, bias=True)
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4*4*50)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.dense1(x))
+        x = F.relu(self.dense2(x))
+        x = F.relu(self.dense3(x))
         return F.log_softmax(x, dim=1)
 
 
