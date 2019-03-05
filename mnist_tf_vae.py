@@ -4,11 +4,11 @@ Adapted from https://jmetzen.github.io/2015-11-27/vae.html.
 """
 
 
+import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 import random
 import tensorflow as tf
-from matplotlib.animation import FuncAnimation
 from tensorflow.contrib.layers import optimize_loss, xavier_initializer
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.framework import dtypes
@@ -290,10 +290,30 @@ class VAE(object):
                              feed_dict={self.x: x})
 
 
-def train(network_architecture, mnist):
+def update_plot(i, data, scat, ax):
+    ax.set_xlabel(i)  # TODO Meaningful labels
+    scat.set_offsets(data[i])
+    return scat,
+
+
+def train(network_architecture, mnist, plot_latent=True):
     vae = VAE(network_architecture)
     n_samples = mnist.train.num_examples
     n_batches = int(n_samples / BATCH_SIZE)  # Number of batches in 1 epoch.
+
+    if plot_latent:
+        control_xs, _ = mnist.test.next_batch(BATCH_SIZE)
+        plot_data = []
+        fig, ax = plt.subplots()
+        ax.set_xlim((-5, 5))
+        ax.set_ylim((-5, 5))
+        scat = ax.scatter([], [])
+    else:
+        control_xs = None
+        plot_data = None
+        fig = None
+        ax = None
+        scat = None
 
     # Training cycle.
     for epoch in range(NUM_EPOCHS):
@@ -313,8 +333,19 @@ def train(network_architecture, mnist):
             # Compute average loss.
             avg_cost += cost / n_samples * BATCH_SIZE
 
+            # Plot latent space on the control data set.
+            if i % 50 == 0 and control_xs is not None:
+                z_mu = vae.encode(control_xs)
+                plot_data.append(z_mu)
+
         print("Epoch:", '%04d' % (epoch + 1),
               "avg seen batch cost=", "{:.9f}".format(avg_cost))
+
+    if control_xs is not None:
+        ani = animation.FuncAnimation(fig, update_plot, frames=np.arange(len(plot_data)),
+                                      fargs=(plot_data, scat, ax), interval=200)
+        ani.save('latent.gif', dpi=80, writer='imagemagick')
+        plt.gcf().clear()
 
     return vae
 
