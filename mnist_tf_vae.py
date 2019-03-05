@@ -8,7 +8,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import random
 import tensorflow as tf
-from tensorflow.contrib.layers import xavier_initializer
+from matplotlib.animation import FuncAnimation
+from tensorflow.contrib.layers import optimize_loss, xavier_initializer
+from tensorflow.python.ops import variable_scope
+from tensorflow.python.framework import dtypes
+from tensorflow.python.ops import init_ops
 
 random.seed(0)
 np.random.seed(0)
@@ -23,13 +27,23 @@ TENSORBOARD_TRAIN_DIR = '/Users/olex/tb/train'
 TENSORBOARD_TEST_DIR = '/Users/olex/tb/test'
 
 
-def variable_summaries(var):
+# Needs to be defined for tf.contrib.layers.optimize_loss().
+GLOBAL_STEP = variable_scope.get_variable(
+      "global_step", [],
+      trainable=False,
+      dtype=dtypes.int64,
+      initializer=init_ops.constant_initializer(0, dtype=dtypes.int64))
+
+
+def variable_summaries(layer_name, var):
     """
     Attach a lot of summaries to a Tensor (for TensorBoard visualization).
     Taken from https://www.tensorflow.org/guide/summaries_and_tensorboard.
     """
 
-    with tf.name_scope('summaries'):
+    # Cut off ':0' from the variable name.
+    scope_name = '{}/{}'.format(layer_name, var.name[:-2])
+    with tf.name_scope(scope_name):
         mean = tf.reduce_mean(var)
         tf.summary.scalar('mean', mean)
         stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
@@ -101,49 +115,49 @@ class VAE(object):
 
         all_weights = dict()
         all_weights['weights_recog'] = {
-            'h1': tf.Variable(xavier_init(shape=(n_input, n_hidden_recog_1))),
-            'h2': tf.Variable(xavier_init(shape=(n_hidden_recog_1, n_hidden_recog_2))),
-            'out_mean': tf.Variable(xavier_init(shape=(n_hidden_recog_2, n_z))),
-            'out_log_sigma': tf.Variable(xavier_init(shape=(n_hidden_recog_2, n_z)))
+            'w1': tf.Variable(name='enc_w1', initial_value=xavier_init(shape=(n_input, n_hidden_recog_1))),
+            'w2': tf.Variable(name='enc_w2', initial_value=xavier_init(shape=(n_hidden_recog_1, n_hidden_recog_2))),
+            'w_z_mean': tf.Variable(name='enc_z_mean_w', initial_value=xavier_init(shape=(n_hidden_recog_2, n_z))),
+            'w_z_log_sigma': tf.Variable(name='enc_z_log_sigma_w', initial_value=xavier_init(shape=(n_hidden_recog_2, n_z)))
         }
         all_weights['biases_recog'] = {
-            'b1': tf.Variable(tf.zeros([n_hidden_recog_1], dtype=tf.float32)),
-            'b2': tf.Variable(tf.zeros([n_hidden_recog_2], dtype=tf.float32)),
-            'out_mean': tf.Variable(tf.zeros([n_z], dtype=tf.float32)),
-            'out_log_sigma': tf.Variable(tf.zeros([n_z], dtype=tf.float32))
+            'b1': tf.Variable(name='enc_b1', initial_value=tf.zeros([n_hidden_recog_1], dtype=tf.float32)),
+            'b2': tf.Variable(name='enc_b2', initial_value=tf.zeros([n_hidden_recog_2], dtype=tf.float32)),
+            'b_z_mean': tf.Variable(name='enc_z_mean_b', initial_value=tf.zeros([n_z], dtype=tf.float32)),
+            'b_z_log_sigma': tf.Variable(name='enc_z_log_sigma_b', initial_value=tf.zeros([n_z], dtype=tf.float32))
         }
         all_weights['weights_gener'] = {
-            'h1': tf.Variable(xavier_init(shape=(n_z, n_hidden_gener_1))),
-            'h2': tf.Variable(xavier_init(shape=(n_hidden_gener_1, n_hidden_gener_2))),
-            'out_mean': tf.Variable(xavier_init(shape=(n_hidden_gener_2, n_input))),
+            'w1': tf.Variable(name='dec_w1', initial_value=xavier_init(shape=(n_z, n_hidden_gener_1))),
+            'w2': tf.Variable(name='dec_w2', initial_value=xavier_init(shape=(n_hidden_gener_1, n_hidden_gener_2))),
+            'w_x_mean': tf.Variable(name='dec_x_mean_w', initial_value=xavier_init(shape=(n_hidden_gener_2, n_input))),
             # As we are doing Bernoulli in the output, log sigma is not needed for now.
-            # 'out_log_sigma': tf.Variable(xavier_init(shape=(n_hidden_gener_2, n_input)))
+            # 'w_x_log_sigma': tf.Variable(xavier_init(shape=(n_hidden_gener_2, n_input)))
         }
         all_weights['biases_gener'] = {
-            'b1': tf.Variable(tf.zeros([n_hidden_gener_1], dtype=tf.float32)),
-            'b2': tf.Variable(tf.zeros([n_hidden_gener_2], dtype=tf.float32)),
-            'out_mean': tf.Variable(tf.zeros([n_input], dtype=tf.float32)),
+            'b1': tf.Variable(name='dec_b1', initial_value=tf.zeros([n_hidden_gener_1], dtype=tf.float32)),
+            'b2': tf.Variable(name='dec_b2', initial_value=tf.zeros([n_hidden_gener_2], dtype=tf.float32)),
+            'b_x_mean': tf.Variable(name='dec_x_mean_b', initial_value=tf.zeros([n_input], dtype=tf.float32)),
             # As we are doing Bernoulli in the output, log sigma is not needed for now.
-            # 'out_log_sigma': tf.Variable(tf.zeros([n_input], dtype=tf.float32))
+            # 'b_x_log_sigma': tf.Variable(tf.zeros([n_input], dtype=tf.float32))
         }
 
-        # Add Tensorboard summaries to all weights and biases.  # TODO Normal scope names for layers!
+        # Add Tensorboard summaries to all weights and biases.
         # Encoder.
-        variable_summaries(all_weights['weights_recog']['h1'])
-        variable_summaries(all_weights['weights_recog']['h2'])
-        variable_summaries(all_weights['weights_recog']['out_mean'])
-        variable_summaries(all_weights['weights_recog']['out_log_sigma'])
-        variable_summaries(all_weights['biases_recog']['b1'])
-        variable_summaries(all_weights['biases_recog']['b2'])
-        variable_summaries(all_weights['biases_recog']['out_mean'])
-        variable_summaries(all_weights['biases_recog']['out_log_sigma'])
+        variable_summaries('encoder_h1', all_weights['weights_recog']['w1'])
+        variable_summaries('encoder_h2', all_weights['weights_recog']['w2'])
+        variable_summaries('encoder_z', all_weights['weights_recog']['w_z_mean'])
+        variable_summaries('encoder_z', all_weights['weights_recog']['w_z_log_sigma'])
+        variable_summaries('encoder_h1', all_weights['biases_recog']['b1'])
+        variable_summaries('encoder_h2', all_weights['biases_recog']['b2'])
+        variable_summaries('encoder_z', all_weights['biases_recog']['b_z_mean'])
+        variable_summaries('encoder_z', all_weights['biases_recog']['b_z_log_sigma'])
         # Decoder.
-        variable_summaries(all_weights['weights_gener']['h1'])
-        variable_summaries(all_weights['weights_gener']['h2'])
-        variable_summaries(all_weights['weights_gener']['out_mean'])
-        variable_summaries(all_weights['biases_gener']['b1'])
-        variable_summaries(all_weights['biases_gener']['b2'])
-        variable_summaries(all_weights['biases_gener']['out_mean'])
+        variable_summaries('decoder_h1', all_weights['weights_gener']['w1'])
+        variable_summaries('decoder_h2', all_weights['weights_gener']['w2'])
+        variable_summaries('decoder_x', all_weights['weights_gener']['w_x_mean'])
+        variable_summaries('decoder_h1', all_weights['biases_gener']['b1'])
+        variable_summaries('decoder_h2', all_weights['biases_gener']['b2'])
+        variable_summaries('decoder_x', all_weights['biases_gener']['b_x_mean'])
 
         return all_weights
 
@@ -151,28 +165,54 @@ class VAE(object):
         # Generate probabilistic encoder (recognition network), which
         # maps inputs onto a normal distribution in latent space.
         # The transformation is parametrized and can be learned.
-        # TODO TB summaries for activations and preactivations
-        layer_1 = self.transfer_fct(tf.add(tf.matmul(self.x, weights['h1']),
-                                           biases['b1']))
-        layer_2 = self.transfer_fct(tf.add(tf.matmul(layer_1, weights['h2']),
-                                           biases['b2']))
-        z_mean = tf.add(tf.matmul(layer_2, weights['out_mean']),
-                        biases['out_mean'])
-        z_log_sigma_sq = tf.add(tf.matmul(layer_2, weights['out_log_sigma']),
-                                biases['out_log_sigma'])
+        preactiv_1 = tf.add(tf.matmul(self.x, weights['w1']),
+                            biases['b1'], name='w1x_plus_b1')
+        layer_1 = self.transfer_fct(preactiv_1, name='a1')
+        variable_summaries('encoder_h1', preactiv_1)
+        variable_summaries('encoder_h1', layer_1)
+
+        preactiv_2 = tf.add(tf.matmul(layer_1, weights['w2']),
+                            biases['b2'], name='w2a1_plus_b2')
+        layer_2 = self.transfer_fct(preactiv_2, name='a2')
+        variable_summaries('encoder_h2', preactiv_2)
+        variable_summaries('encoder_h2', preactiv_2)
+
+        z_mean = tf.add(tf.matmul(layer_2, weights['w_z_mean']),
+                        biases['b_z_mean'],
+                        name='z_mean')
+        z_log_sigma_sq = tf.add(tf.matmul(layer_2, weights['w_z_log_sigma']),
+                                biases['b_z_log_sigma'],
+                                name='z_log_sigma_sq')
+        # I'm not sure what it will show but adding it anyway.
+        variable_summaries('encoder_z', z_mean)
+        variable_summaries('encoder_z', z_log_sigma_sq)
+
         return z_mean, z_log_sigma_sq
 
     def _generator_network(self, weights, biases):
         # Generate probabilistic decoder (decoder network), which
         # maps points in latent space onto a Bernoulli distribution in data space.
         # The transformation is parametrized and can be learned.
-        layer_1 = self.transfer_fct(tf.add(tf.matmul(self.z, weights['h1']),
-                                           biases['b1']))
-        layer_2 = self.transfer_fct(tf.add(tf.matmul(layer_1, weights['h2']),
-                                           biases['b2']))
+        preactiv_1 = tf.add(tf.matmul(self.z, weights['w1']),
+                            biases['b1'],
+                            name='w1z_plus_b1')
+        layer_1 = self.transfer_fct(preactiv_1, name='a1')
+        variable_summaries('decoder_h1', preactiv_1)
+        variable_summaries('decoder_h1', layer_1)
+
+        preactiv_2 = tf.add(tf.matmul(layer_1, weights['w2']),
+                            biases['b2'],
+                            name='w2a1_plus_b2')
+        layer_2 = self.transfer_fct(preactiv_2, name='a2')
+        variable_summaries('decoder_h2', preactiv_2)
+        variable_summaries('decoder_h2', layer_2)
+
         x_reconstr_mean = \
-            tf.nn.sigmoid(tf.add(tf.matmul(layer_2, weights['out_mean']),
-                                 biases['out_mean']))
+            tf.nn.sigmoid(tf.add(tf.matmul(layer_2, weights['w_x_mean']),
+                                 biases['b_x_mean']),
+                          name='x_reconstr_mean')
+        variable_summaries('decoder_x', x_reconstr_mean)
+
         return x_reconstr_mean
 
     def _create_loss_optimizer(self):
@@ -184,9 +224,10 @@ class VAE(object):
         #     for reconstructing the input when the activation in latent
         #     is given.
         # Adding 1e-10 to avoid evaluation of log(0.0).
+        # Actually 1e-10 didn't work as great, so changed it to 1e-7...
         reconstr_loss = \
-            -tf.reduce_sum(self.x * tf.log(1e-10 + self.x_reconstr_mean)
-                           + (1 - self.x) * tf.log(1e-10 + 1 - self.x_reconstr_mean),
+            -tf.reduce_sum(self.x * tf.log(1e-7 + self.x_reconstr_mean)
+                           + (1 - self.x) * tf.log(1e-7 + 1 - self.x_reconstr_mean),
                            1)
         # 2.) The latent loss, which is defined as the Kullback-Leibler divergence
         #     between the distribution in latent space induced by the encoder on
@@ -200,8 +241,14 @@ class VAE(object):
 
         self.cost = tf.reduce_mean(reconstr_loss + latent_loss)  # Average over batch.
 
-        # Use ADAM optimizer  # TODO Use SGD
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=LEARNING_RATE).minimize(self.cost)
+        self.optimizer = optimize_loss(
+            self.cost, GLOBAL_STEP, learning_rate=LEARNING_RATE, optimizer='SGD',
+            summaries=["gradients"])
+
+        with tf.name_scope('metrics'):
+            tf.summary.scalar('loss', self.cost)
+            tf.summary.scalar('reconstr_loss', tf.reduce_mean(reconstr_loss))
+            tf.summary.scalar('kl_loss', tf.reduce_mean(latent_loss))
 
     def partial_fit(self, x):
         """
@@ -259,6 +306,8 @@ def train(network_architecture, mnist):
 
             # Fit training using batch data.
             summary, opt, cost = vae.partial_fit(batch_xs)
+            print("Epoch {} / batch {} / cost {}".format(epoch + 1, i, cost))
+
             vae.train_writer.add_summary(summary, epoch * n_batches + i)
 
             # Compute average loss.
@@ -266,6 +315,7 @@ def train(network_architecture, mnist):
 
         print("Epoch:", '%04d' % (epoch + 1),
               "avg seen batch cost=", "{:.9f}".format(avg_cost))
+
     return vae
 
 
