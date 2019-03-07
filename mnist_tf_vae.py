@@ -18,10 +18,12 @@ random.seed(0)
 np.random.seed(0)
 tf.set_random_seed(0)
 
+import mnist_tf_data
+
 
 BATCH_SIZE = 64
 LEARNING_RATE = 0.01
-NUM_EPOCHS = 10
+NUM_EPOCHS = 3
 LATENT_DIM = 2
 TENSORBOARD_TRAIN_DIR = '/Users/olex/tb/train'
 TENSORBOARD_TEST_DIR = '/Users/olex/tb/test'
@@ -43,14 +45,14 @@ def variable_summaries(layer_name, var):
 
     # Cut off ':0' from the variable name.
     scope_name = '{}/{}'.format(layer_name, var.name[:-2])
-    with tf.name_scope(scope_name):
-        mean = tf.reduce_mean(var)
-        tf.summary.scalar('mean', mean)
-        stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
-        tf.summary.scalar('stddev', stddev)
-        tf.summary.scalar('max', tf.reduce_max(var))
-        tf.summary.scalar('min', tf.reduce_min(var))
-        tf.summary.histogram('histogram', var)
+    # with tf.name_scope(scope_name):  # TODO Nans again
+    #     mean = tf.reduce_mean(var)
+    #     tf.summary.scalar('mean', mean)
+    #     stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
+    #     tf.summary.scalar('stddev', stddev)
+    #     tf.summary.scalar('max', tf.reduce_max(var))
+    #     tf.summary.scalar('min', tf.reduce_min(var))
+    #     tf.summary.histogram('histogram', var)
 
 
 class VAE(object):
@@ -243,12 +245,13 @@ class VAE(object):
 
         self.optimizer = optimize_loss(
             self.cost, GLOBAL_STEP, learning_rate=LEARNING_RATE, optimizer='SGD',
-            summaries=["gradients"])
+            # summaries=["gradients"])
+            )
 
-        with tf.name_scope('metrics'):
-            tf.summary.scalar('loss', self.cost)
-            tf.summary.scalar('reconstr_loss', tf.reduce_mean(reconstr_loss))
-            tf.summary.scalar('kl_loss', tf.reduce_mean(latent_loss))
+        # with tf.name_scope('metrics'):
+        #     tf.summary.scalar('loss', self.cost)
+        #     tf.summary.scalar('reconstr_loss', tf.reduce_mean(reconstr_loss))
+        #     tf.summary.scalar('kl_loss', tf.reduce_mean(latent_loss))
 
     def partial_fit(self, x):
         """
@@ -290,27 +293,28 @@ class VAE(object):
                              feed_dict={self.x: x})
 
 
-def update_plot(i, data, scat, ax):
-    ax.set_xlabel(i)  # TODO Meaningful labels
+def update_plot(i, data, labels, scat, ax):
+    ax.set_xlabel(i)  # TODO Meaningful x labels
     scat.set_offsets(data[i])
+    scat.set_color(labels[i])
     return scat,
 
 
-def train(network_architecture, mnist, plot_latent=True):
+def train(network_architecture, train_data, train_labels, plot_train=True,
+          control_data=None, control_labels=None, plot_control=False):
     vae = VAE(network_architecture)
-    n_samples = mnist.train.num_examples
+    n_samples = train_data.shape[0]
     n_batches = int(n_samples / BATCH_SIZE)  # Number of batches in 1 epoch.
+    print('Training batches:', n_batches)
 
-    if plot_latent:
-        control_xs, _ = mnist.test.next_batch(BATCH_SIZE)
-        plot_data = []
+    if plot_train:
+        plot_data, plot_labels = [], []
         fig, ax = plt.subplots()
         ax.set_xlim((-5, 5))
         ax.set_ylim((-5, 5))
         scat = ax.scatter([], [])
     else:
-        control_xs = None
-        plot_data = None
+        plot_data, plot_labels = None, None
         fig = None
         ax = None
         scat = None
@@ -321,8 +325,7 @@ def train(network_architecture, mnist, plot_latent=True):
 
         # Loop over all batches.
         for i in range(n_batches):
-            # TODO Need to generate batches by myself as we want to work with mmaps
-            batch_xs, _ = mnist.train.next_batch(BATCH_SIZE)  # Labels are dropped.
+            batch_xs = train_data[(i * BATCH_SIZE):(i * BATCH_SIZE + BATCH_SIZE), :]
 
             # Fit training using batch data.
             summary, opt, cost = vae.partial_fit(batch_xs)
@@ -333,25 +336,26 @@ def train(network_architecture, mnist, plot_latent=True):
             # Compute average loss.
             avg_cost += cost / n_samples * BATCH_SIZE
 
-            # Plot latent space on the control data set.
-            if i % 50 == 0 and control_xs is not None:
-                z_mu = vae.encode(control_xs)
+            # Plot latent space on all data seen so far.
+            if plot_train and i % 10 == 0:
+                z_mu = vae.encode(train_data[:(i * BATCH_SIZE + BATCH_SIZE), :])
                 plot_data.append(z_mu)
+                colors = ['b' if l == 0 else 'r' for l in train_labels[:(i * BATCH_SIZE + BATCH_SIZE)]]
+                plot_labels.append(colors)
 
         print("Epoch:", '%04d' % (epoch + 1),
               "avg seen batch cost=", "{:.9f}".format(avg_cost))
 
-    if control_xs is not None:
+    if plot_train:
         ani = animation.FuncAnimation(fig, update_plot, frames=np.arange(len(plot_data)),
-                                      fargs=(plot_data, scat, ax), interval=200)
+                                      fargs=(plot_data, plot_labels, scat, ax), interval=200)
         ani.save('latent.gif', dpi=80, writer='imagemagick')
         plt.gcf().clear()
 
     return vae
 
 
-def plot_example_reconstr(vae, mnist):
-    x_sample, _ = mnist.test.next_batch(BATCH_SIZE)  # Labels are dropped.
+def plot_example_reconstr(vae, x_sample):
     x_reconstruct = vae.reconstruct(x_sample)
 
     plt.figure(figsize=(8, 12))
@@ -380,15 +384,33 @@ def main():
              n_input=784,  # MNIST data input (img shape: 28*28)
              n_z=LATENT_DIM)  # dimensionality of latent space
 
-    # Load MNIST data in a format suited for tensorflow.
-    # The script input_data is available under this URL:
-    # https://raw.githubusercontent.com/tensorflow/tensorflow/master/tensorflow/examples/tutorials/mnist/input_data.py
-    import input_data
-    mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
+    class_0_train = mnist_tf_data.get_class_data(0, train=True)
+    class_1_train = mnist_tf_data.get_class_data(1, train=True)
+    # 50 batches of 0, then 50 batches of 1, then 50 batches of 0 again.
+    num_entries = BATCH_SIZE * 50
+    train_data = np.vstack((class_0_train[:num_entries, :],
+                            class_1_train[:num_entries, :],
+                            class_0_train[num_entries:(2 * num_entries), :]))
+    train_data = train_data.reshape((train_data.shape[0], -1))
+    train_data = train_data / 255  # An attempt at normalization.
+    train_labels = np.hstack((np.zeros(shape=(num_entries,), dtype=np.int32),
+                              np.ones(shape=(num_entries,), dtype=np.int32),
+                              np.zeros(shape=(num_entries,), dtype=np.int32)))
+    train_labels = train_labels[:train_data.shape[0]]
 
-    vae = train(network_architecture, mnist)
+    # Build the control and the test data sets.
+    class_0_test = mnist_tf_data.get_class_data(0, train=False)
+    class_1_test = mnist_tf_data.get_class_data(1, train=False)
+    # control_data = np.vstack((class_0_test[:BATCH_SIZE, :],  # TODO Shuffle with labels
+    #                           class_1_test[:BATCH_SIZE, :]))
+    test_data = np.vstack((class_0_test[BATCH_SIZE:(2 * BATCH_SIZE), :],
+                           class_1_test[BATCH_SIZE:(2 * BATCH_SIZE), :]))
+    test_data = test_data.reshape((test_data.shape[0], -1))
+    test_data = test_data / 255
+    np.random.shuffle(test_data)
 
-    plot_example_reconstr(vae, mnist)
+    vae = train(network_architecture, train_data, train_labels)
+    plot_example_reconstr(vae, test_data[:BATCH_SIZE, :])
 
 
 if __name__ == '__main__':
