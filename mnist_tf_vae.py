@@ -27,6 +27,7 @@ NUM_EPOCHS = 3
 LATENT_DIM = 2
 TENSORBOARD_TRAIN_DIR = '/Users/olex/tb/train'
 TENSORBOARD_TEST_DIR = '/Users/olex/tb/test'
+COLOURS = ['blue', 'red', 'green', 'cyan', 'magenta', 'yellow', 'black']
 
 
 # Needs to be defined for tf.contrib.layers.optimize_loss().
@@ -45,14 +46,14 @@ def variable_summaries(layer_name, var):
 
     # Cut off ':0' from the variable name.
     scope_name = '{}/{}'.format(layer_name, var.name[:-2])
-    # with tf.name_scope(scope_name):  # TODO Nans again
-    #     mean = tf.reduce_mean(var)
-    #     tf.summary.scalar('mean', mean)
-    #     stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
-    #     tf.summary.scalar('stddev', stddev)
-    #     tf.summary.scalar('max', tf.reduce_max(var))
-    #     tf.summary.scalar('min', tf.reduce_min(var))
-    #     tf.summary.histogram('histogram', var)
+    with tf.name_scope(scope_name):
+        mean = tf.reduce_mean(var)
+        tf.summary.scalar('mean', mean)
+        stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
+        tf.summary.scalar('stddev', stddev)
+        tf.summary.scalar('max', tf.reduce_max(var))
+        tf.summary.scalar('min', tf.reduce_min(var))
+        tf.summary.histogram('histogram', var)
 
 
 class VAE(object):
@@ -245,13 +246,12 @@ class VAE(object):
 
         self.optimizer = optimize_loss(
             self.cost, GLOBAL_STEP, learning_rate=LEARNING_RATE, optimizer='SGD',
-            # summaries=["gradients"])
-            )
+            summaries=["gradients"])
 
-        # with tf.name_scope('metrics'):
-        #     tf.summary.scalar('loss', self.cost)
-        #     tf.summary.scalar('reconstr_loss', tf.reduce_mean(reconstr_loss))
-        #     tf.summary.scalar('kl_loss', tf.reduce_mean(latent_loss))
+        with tf.name_scope('metrics'):
+            tf.summary.scalar('loss', self.cost)
+            tf.summary.scalar('reconstr_loss', tf.reduce_mean(reconstr_loss))
+            tf.summary.scalar('kl_loss', tf.reduce_mean(latent_loss))
 
     def partial_fit(self, x):
         """
@@ -293,8 +293,8 @@ class VAE(object):
                              feed_dict={self.x: x})
 
 
-def update_plot(i, data, labels, scat, ax):
-    ax.set_xlabel(i)  # TODO Meaningful x labels
+def update_plot(i, epochs, batches, data, labels, scat, ax):
+    ax.set_xlabel('Epoch: {}, batch: {}'.format(epochs[i] + 1, batches[i] + 1))
     scat.set_offsets(data[i])
     scat.set_color(labels[i])
     return scat,
@@ -308,15 +308,14 @@ def train(network_architecture, train_data, train_labels, plot_train=True,
     print('Training batches:', n_batches)
 
     if plot_train:
-        plot_data, plot_labels = [], []
+        plot_data, plot_labels, plot_epochs, plot_batches = [], [], [], []
         fig, ax = plt.subplots()
         ax.set_xlim((-5, 5))
         ax.set_ylim((-5, 5))
-        scat = ax.scatter([], [])
+        scat = ax.scatter([], [], s=1)
     else:
-        plot_data, plot_labels = None, None
-        fig = None
-        ax = None
+        plot_data, plot_labels, plot_epochs, plot_batches = None, None, None, None
+        fig, ax = None, None
         scat = None
 
     # Training cycle.
@@ -337,18 +336,23 @@ def train(network_architecture, train_data, train_labels, plot_train=True,
             avg_cost += cost / n_samples * BATCH_SIZE
 
             # Plot latent space on all data seen so far.
-            if plot_train and i % 10 == 0:
+            if plot_train:
                 z_mu = vae.encode(train_data[:(i * BATCH_SIZE + BATCH_SIZE), :])
                 plot_data.append(z_mu)
-                colors = ['b' if l == 0 else 'r' for l in train_labels[:(i * BATCH_SIZE + BATCH_SIZE)]]
-                plot_labels.append(colors)
+                colours = [COLOURS[l] for l in train_labels[:(i * BATCH_SIZE + BATCH_SIZE)]]
+                plot_labels.append(colours)
+                # It is a bit ugly to accumulate epoch/batch idxs like this, but...
+                plot_epochs.append(epoch)
+                plot_batches.append(i)
 
         print("Epoch:", '%04d' % (epoch + 1),
               "avg seen batch cost=", "{:.9f}".format(avg_cost))
 
     if plot_train:
-        ani = animation.FuncAnimation(fig, update_plot, frames=np.arange(len(plot_data)),
-                                      fargs=(plot_data, plot_labels, scat, ax), interval=200)
+        ani = animation.FuncAnimation(fig, update_plot,
+                                      frames=np.arange(len(plot_data)),
+                                      fargs=(plot_epochs, plot_batches, plot_data, plot_labels, scat, ax),
+                                      interval=300)
         ani.save('latent.gif', dpi=80, writer='imagemagick')
         plt.gcf().clear()
 
@@ -384,30 +388,34 @@ def main():
              n_input=784,  # MNIST data input (img shape: 28*28)
              n_z=LATENT_DIM)  # dimensionality of latent space
 
-    class_0_train = mnist_tf_data.get_class_data(0, train=True)
-    class_1_train = mnist_tf_data.get_class_data(1, train=True)
-    # 50 batches of 0, then 50 batches of 1, then 50 batches of 0 again.
-    num_entries = BATCH_SIZE * 50
+    class_0_train = mnist_tf_data.get_class_data(1, train=True)
+    class_1_train = mnist_tf_data.get_class_data(0, train=True)
+    # N batches of 0, then N batches of 1, then 0.
+    num_entries = BATCH_SIZE * 20
     train_data = np.vstack((class_0_train[:num_entries, :],
                             class_1_train[:num_entries, :],
                             class_0_train[num_entries:(2 * num_entries), :]))
     train_data = train_data.reshape((train_data.shape[0], -1))
     train_data = train_data / 255  # An attempt at normalization.
-    train_labels = np.hstack((np.zeros(shape=(num_entries,), dtype=np.int32),
-                              np.ones(shape=(num_entries,), dtype=np.int32),
-                              np.zeros(shape=(num_entries,), dtype=np.int32)))
+    train_labels = np.hstack((np.ones(shape=(num_entries,), dtype=np.int32),
+                              np.zeros(shape=(num_entries,), dtype=np.int32),
+                              np.ones(shape=(num_entries,), dtype=np.int32)))
     train_labels = train_labels[:train_data.shape[0]]
 
     # Build the control and the test data sets.
     class_0_test = mnist_tf_data.get_class_data(0, train=False)
     class_1_test = mnist_tf_data.get_class_data(1, train=False)
-    # control_data = np.vstack((class_0_test[:BATCH_SIZE, :],  # TODO Shuffle with labels
-    #                           class_1_test[:BATCH_SIZE, :]))
     test_data = np.vstack((class_0_test[BATCH_SIZE:(2 * BATCH_SIZE), :],
                            class_1_test[BATCH_SIZE:(2 * BATCH_SIZE), :]))
     test_data = test_data.reshape((test_data.shape[0], -1))
     test_data = test_data / 255
     np.random.shuffle(test_data)
+
+    # Shuffle to make sure it works when shuffled.
+    # idx = np.arange(train_data.shape[0])
+    # np.random.shuffle(idx)
+    # train_data = train_data[idx, :]
+    # train_labels = train_labels[idx]
 
     vae = train(network_architecture, train_data, train_labels)
     plot_example_reconstr(vae, test_data[:BATCH_SIZE, :])
