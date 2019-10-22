@@ -15,7 +15,8 @@ class MemoryMap(keras.callbacks.Callback):
     _MAX_LOSS = 2000
     _MIN_LOSS = -2000
 
-    def __init__(self, all_data, all_labels, model, batch_size, model_dir):
+    def __init__(self, all_data, all_labels, model, batch_size, model_dir,
+                 norm=True):
         assert len(all_data) == len(all_labels)
         assert len(all_data) % batch_size == 0
 
@@ -40,6 +41,8 @@ class MemoryMap(keras.callbacks.Callback):
         self.mmap_dir = os.path.join(model_dir, 'mmap')
         if not os.path.isdir(self.mmap_dir):
             os.makedirs(self.mmap_dir)
+
+        self.norm = norm
 
     def on_batch_begin(self, batch, logs=None):
         self.cur_batch_id += 1
@@ -68,6 +71,13 @@ class MemoryMap(keras.callbacks.Callback):
             mmap[isnan] = nanmax
             mmap = np.clip(mmap, nanmin, nanmax)
 
+        if self.norm:
+            # Normalise mmap so that its scale is consistent across epochs.
+            # Note that the mmap is no more non-negative at this point.
+            mmap_mean, mmap_std = np.mean(mmap), np.std(mmap)
+            print('Epoch:', epoch, '; mean:', mmap_mean, '; std:', mmap_std)
+            mmap = (mmap - mmap_mean) / mmap_std
+
         sns.heatmap(mmap, xticklabels=self.K // 10, yticklabels=self.K // 10, cmap="YlGnBu")
         plt.title('Mini-batch losses: epoch {}'.format(self.cur_epoch_id + 1))
         plt.ylabel('Mini-batch')
@@ -78,5 +88,5 @@ class MemoryMap(keras.callbacks.Callback):
         plt.gcf().clear()
 
         # Reset memory map for the next epoch.
-        self.mmap = np.zeros(shape=(self.K, self.K))  # TODO Normalise the mmap at the very end?
+        self.mmap = np.zeros(shape=(self.K, self.K))
         self.cur_batch_id = -1

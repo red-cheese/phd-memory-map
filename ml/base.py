@@ -9,8 +9,9 @@ class BaseModel:
     _DEFAULT_BATCH_SIZE = 64
     _DEFAULT_NUM_EPOCHS = 5
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, mmap_normalise=True, **kwargs):
         self.model, self.model_dir = self.build_model(*args, **kwargs)
+        self.mmap_normalise = mmap_normalise
 
     def build_model(self, *args, **kwargs):
         raise NotImplementedError
@@ -24,7 +25,8 @@ class BaseModel:
 
         mmap_callback = mmap.MemoryMap(
             all_data=x, all_labels=y, model=self.model,
-            batch_size=batch_size, model_dir=self.model_dir)
+            batch_size=batch_size, model_dir=self.model_dir,
+            norm=self.mmap_normalise)
         self.model.fit(x=x, y=y, batch_size=batch_size, verbose=1,
                        callbacks=[mmap_callback], epochs=num_epochs,
                        validation_data=validation_data,
