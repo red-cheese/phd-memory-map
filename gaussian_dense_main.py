@@ -38,13 +38,7 @@ def _vstack(seq, shuffle=True):
     return x, y
 
 
-def gaussian0():
-    """
-    Experiment 0: no poisoning, static IID data.
-    """
-
-    print('Experiment 0')
-
+def _basic_train_test():
     train_set_size = (NUM_TRAIN_BATCHES // 2) * BATCH_SIZE
     test_set_size = (NUM_TEST_BATCHES // 2) * BATCH_SIZE
 
@@ -65,6 +59,32 @@ def gaussian0():
                               (test_x_1, test_y_1)],
                              shuffle=True)
 
+    return train_x, train_y, test_x, test_y
+
+
+def _flip_labels(orig_labels, start_idx, end_idx, flip_proba):
+    print('Flip labels in the interval [{}, {}) (batches {}-{}) with probability {}'
+          .format(start_idx, end_idx, start_idx // BATCH_SIZE, end_idx // BATCH_SIZE, flip_proba))
+
+    labels = np.copy(orig_labels)
+    idx = np.random.choice(np.arange(start_idx, end_idx),
+                           size=int(flip_proba * (end_idx - start_idx)),
+                           replace=False)
+    old_labels = labels[idx, :]
+    labels[idx, :] = 1 - old_labels
+
+    return labels
+
+
+def gaussian0():
+    """
+    Experiment 0: no poisoning, static IID data.
+    """
+
+    print('Experiment 0')
+
+    train_x, train_y, test_x, test_y = _basic_train_test()
+
     dense_nn = dense.DenseNN(name='gaussian0',
                              input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
                              classes=[0, 1], batch_size=BATCH_SIZE,
@@ -79,8 +99,35 @@ def gaussian0():
     print('Experiment 0 complete')
 
 
+def gaussian1():
+    """
+    Experiment 1: flip labels in several batches in the middle.
+    """
+
+    print('Experiment 1')
+
+    train_x, train_y, test_x, test_y = _basic_train_test()
+
+    # Flip some labels in the middle of the training set.
+    # There are 80 batches in total, so flip labels in batches 40 to 50.
+    train_y = _flip_labels(train_y, 40 * BATCH_SIZE, 50 * BATCH_SIZE, 1.)
+
+    dense_nn = dense.DenseNN(name='gaussian1',
+                             input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
+                             classes=[0, 1], batch_size=BATCH_SIZE,
+                             mmap_normalise=False)
+    dense_nn.fit(train_x, train_y, validation_data=(test_x, test_y))
+
+    print('=====')
+    print('Evaluate against test data:')
+    print(dense_nn.evaluate(test_x, test_y))
+
+    print()
+    print('Experiment 1 complete')
+
+
 def main():
-    gaussian0()
+    gaussian1()
 
 
 if __name__ == '__main__':
