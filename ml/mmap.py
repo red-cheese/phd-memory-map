@@ -44,6 +44,8 @@ class MemoryMap(keras.callbacks.Callback):
 
         self.norm = norm
 
+        self.epoch_mmaps = []
+
     def on_batch_begin(self, batch, logs=None):
         self.cur_batch_id += 1
 
@@ -86,6 +88,9 @@ class MemoryMap(keras.callbacks.Callback):
                                  'epoch{}.png'.format(self.cur_epoch_id + 1)),
                     dpi=150)
         plt.gcf().clear()
+
+        # Save the mmap in the model.
+        self.epoch_mmaps.append(np.copy(self.mmap))
 
         # Reset memory map for the next epoch.
         self.mmap = np.zeros(shape=(self.K, self.K))

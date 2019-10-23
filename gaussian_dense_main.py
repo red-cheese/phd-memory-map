@@ -2,7 +2,10 @@
 Sample from 2 Gaussians and classify them, track mmap.
 """
 
+
+import matplotlib.pyplot as plt
 import numpy as np
+from itertools import cycle
 from numpy.random import multivariate_normal
 
 from ml import dense
@@ -10,9 +13,12 @@ from ml import dense
 
 INPUT_DIM = 256
 BATCH_SIZE = 64
+NUM_EPOCHS = 5
 
 NUM_TRAIN_BATCHES = 80
 NUM_TEST_BATCHES = 20
+
+CYCOL = cycle('bgrcmk')  # For colours.
 
 
 def _generate_data(mu, sigma, cls, n):
@@ -76,6 +82,11 @@ def _flip_labels(orig_labels, start_idx, end_idx, flip_proba):
     return labels
 
 
+def _mmap_dist(ms1, ms2):
+    """Returns distances between per-epoch memory maps."""
+    return [np.linalg.norm(m1 - m2) for m1, m2 in zip(ms1, ms2)]
+
+
 def gaussian0():
     """
     Experiment 0: no poisoning, static IID data.
@@ -126,8 +137,58 @@ def gaussian1():
     print('Experiment 1 complete')
 
 
+def gaussian2():
+    """
+    Experiment 2: flip labels in the middle, with varying flip probability,
+    compute distances between memory maps with normal vs flipped labels.
+    """
+
+    print('Experiment 2')
+
+    train_x, train_y, test_x, test_y = _basic_train_test()
+
+    # First train the (base) model without flipping any labels.
+    dense_nn = dense.DenseNN(name='gaussian2_base',
+                             input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
+                             classes=[0, 1], batch_size=BATCH_SIZE,
+                             mmap_normalise=False)
+    dense_nn.fit(train_x, train_y, validation_data=(test_x, test_y),
+                 num_epochs=NUM_EPOCHS)
+    base_mmaps = dense_nn.epoch_mmaps
+    # Epoch -> list of distances.
+    mmap_distances = dict([(epoch, []) for epoch in range(NUM_EPOCHS)])
+
+    start_idx, end_idx = 40 * BATCH_SIZE, 50 * BATCH_SIZE
+    flip_probas = np.around(np.arange(start=0., stop=1., step=0.05), decimals=2)
+    for flip_proba in flip_probas:
+        new_train_y = _flip_labels(train_y, start_idx, end_idx, flip_proba)
+        dense_nn = dense.DenseNN(name='gaussian2_flip={}'.format(flip_proba),
+                                 input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
+                                 classes=[0, 1], batch_size=BATCH_SIZE,
+                                 mmap_normalise=False)
+        dense_nn.fit(train_x, new_train_y, validation_data=(test_x, test_y),
+                     num_epochs=NUM_EPOCHS)
+        mmaps = dense_nn.epoch_mmaps
+        for epoch, distance in enumerate(_mmap_dist(base_mmaps, mmaps)):
+            mmap_distances[epoch].append(distance)
+
+    plt.title('Distances between flipped mmap and base mmap')
+    plt.xlabel('Flip probability')
+    plt.ylabel('Distance')
+    for epoch in range(NUM_EPOCHS):
+        epoch_distances = mmap_distances[epoch]
+        plt.plot(flip_probas, epoch_distances, c=next(CYCOL),
+                 label='Epoch {}'.format(epoch + 1))
+    plt.legend()
+    plt.savefig('mmap_dist.png', dpi=150)
+    plt.gcf().clear()
+
+    print()
+    print('Experiment 2 complete')
+
+
 def main():
-    gaussian1()
+    gaussian2()
 
 
 if __name__ == '__main__':
