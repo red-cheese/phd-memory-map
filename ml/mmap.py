@@ -16,7 +16,7 @@ class MemoryMap(keras.callbacks.Callback):
     _MIN_LOSS = -2000
 
     def __init__(self, all_data, all_labels, model, batch_size, model_dir,
-                 norm=True):
+                 norm=True, epochs_done=0):
         assert len(all_data) == len(all_labels)
         assert len(all_data) % batch_size == 0
 
@@ -36,7 +36,7 @@ class MemoryMap(keras.callbacks.Callback):
         self.mmap = np.zeros(shape=(self.K, self.K))
 
         self.cur_batch_id = -1  # Will start with the mini-batch 0.
-        self.cur_epoch_id = -1
+        self.cur_epoch_id = epochs_done - 1
 
         self.mmap_dir = os.path.join(model_dir, 'mmap')
         if not os.path.isdir(self.mmap_dir):

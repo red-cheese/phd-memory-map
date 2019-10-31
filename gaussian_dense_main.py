@@ -82,9 +82,35 @@ def _flip_labels(orig_labels, start_idx, end_idx, flip_proba):
     return labels
 
 
+def _remove_batches(xs, ys, batches_to_remove):
+    batches_to_remove_set = set(batches_to_remove)
+    to_keep = [i for i in range(xs.shape[0])
+               if i // BATCH_SIZE not in batches_to_remove_set]
+    return xs[to_keep], ys[to_keep]
+
+
 def _mmap_dist(ms1, ms2):
     """Returns distances between per-epoch memory maps."""
     return [np.linalg.norm(m1 - m2) for m1, m2 in zip(ms1, ms2)]
+
+
+def _find_bad_batch(mmap):
+    """
+    Tries to find a bad (poisoned) batch of data by looking at the mmap.
+
+    Computes average losses (mmap values) for each batch (across all training
+    steps), then computed mean and std of these losses, and flags batches for
+    which the losses are beyond 3 sigmas.
+
+    This is a very crude way of finding "bad" batches, and it's temporary.
+    """
+
+    avg_losses = np.mean(mmap, axis=0)
+    mean_, std_ = np.mean(avg_losses), np.std(avg_losses)
+    bad_batches = [i for i, loss in enumerate(avg_losses)
+                   if mean_ - 3 * std_ > loss or mean_ + 3 * std_ < loss]
+    print('Identified bad batches:', bad_batches)
+    return bad_batches
 
 
 def gaussian0():
@@ -160,6 +186,7 @@ def gaussian2():
 
     start_idx, end_idx = 40 * BATCH_SIZE, 50 * BATCH_SIZE
     flip_probas = np.around(np.arange(start=0., stop=1., step=0.05), decimals=2)
+    # TODO Check that no labels are flipped when flip_proba = 0.0
     for flip_proba in flip_probas:
         new_train_y = _flip_labels(train_y, start_idx, end_idx, flip_proba)
         dense_nn = dense.DenseNN(name='gaussian2_flip={}'.format(flip_proba),
@@ -187,8 +214,57 @@ def gaussian2():
     print('Experiment 2 complete')
 
 
+def gaussian3():
+    """
+    Experiment 3: same as 2, but with an attempt to locate and remove poisoned
+    batches, and recalibrate after removing each bad batch.
+    """
+
+    print('Experiment 3')
+
+    train_x, train_y, test_x, test_y = _basic_train_test()
+
+    # Poison several scattered batches with different flip probabilities.
+    train_y = _flip_labels(train_y, 20 * BATCH_SIZE, 23 * BATCH_SIZE, 0.3)
+    train_y = _flip_labels(train_y, 40 * BATCH_SIZE, 45 * BATCH_SIZE, 0.5)
+    train_y = _flip_labels(train_y, 70 * BATCH_SIZE, 72 * BATCH_SIZE, 0.9)
+
+    dense_nn = dense.DenseNN(name='gaussian3a',
+                             input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
+                             classes=[0, 1], batch_size=BATCH_SIZE,
+                             # Do we need to normalise?
+                             mmap_normalise=False)
+
+    # Run the first 5 epochs with poisoned data and obtain the last mmap.
+    dense_nn.fit(train_x, train_y, validation_data=(test_x, test_y),
+                 num_epochs=5)
+
+    last_mmap = dense_nn.epoch_mmaps[-1]
+    bad_batch_indices = _find_bad_batch(last_mmap)
+
+    # Remove bad batches and recalibrate until no more bad batches are found.
+    while bad_batch_indices:
+        train_x, train_y = _remove_batches(train_x, train_y, bad_batch_indices)
+
+        print('Recalibrating...')
+        # Recalibrate for 1 epoch and look at the last mmap again.
+        dense_nn.fit(train_x, train_y, validation_data=(test_x, test_y),
+                     num_epochs=1, continue_training=True)
+        print('Recalibration done')
+
+        last_mmap = dense_nn.epoch_mmaps[-1]
+        bad_batch_indices = _find_bad_batch(last_mmap)
+
+    # Final fitting to double check the mmap.
+    dense_nn.fit(train_x, train_y, validation_data=(test_x, test_y),
+                 num_epochs=1, continue_training=True)
+
+    print()
+    print('Experiment 3 complete')
+
+
 def main():
-    gaussian2()
+    gaussian3()
 
 
 if __name__ == '__main__':

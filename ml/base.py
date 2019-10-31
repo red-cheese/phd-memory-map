@@ -13,13 +13,15 @@ class BaseModel:
     def __init__(self, *args, mmap_normalise=True, **kwargs):
         self.model, self.model_dir = self.build_model(*args, **kwargs)
         self.mmap_normalise = mmap_normalise
-        self.epoch_mmaps = None
+        self.epoch_mmaps = []
 
     def build_model(self, *args, **kwargs):
         raise NotImplementedError
 
     def fit(self, x, y, validation_data=None, batch_size=_DEFAULT_BATCH_SIZE,
-            num_epochs=_DEFAULT_NUM_EPOCHS):
+            num_epochs=_DEFAULT_NUM_EPOCHS,
+            # If True, will load the existing model and continue training.
+            continue_training=False):
         if not os.path.isdir(self.model_dir):
             os.makedirs(self.model_dir)
 
@@ -34,26 +36,30 @@ class BaseModel:
                 self.epoch_mmaps = pickle.load(f)
             print('Loading complete')
 
-        else:
-            print('Training model...')
-            print('Training set shape:', x.shape)
-            mmap_callback = mmap.MemoryMap(
-                all_data=x, all_labels=y, model=self.model,
-                batch_size=batch_size, model_dir=self.model_dir,
-                norm=self.mmap_normalise)
-            self.model.fit(x=x, y=y, batch_size=batch_size, verbose=1,
-                           callbacks=[mmap_callback], epochs=num_epochs,
-                           validation_data=validation_data,
-                           # shuffle=False for memory maps!
-                           shuffle=False)
-            self.epoch_mmaps = mmap_callback.epoch_mmaps
-            print('Training complete')
+            if not continue_training:
+                return
 
-            print('Saving weights and mmaps...')
-            self.model.save_weights(model_filepath, overwrite=True)
-            with open(mmap_filepath, 'wb') as f:
-                pickle.dump(self.epoch_mmaps, f)
-            print('Saving complete')
+        # Continue training.
+        print('Training model...')
+        print('Training set shape:', x.shape)
+        # Set up a new mmap callback.
+        mmap_callback = mmap.MemoryMap(
+            all_data=x, all_labels=y, model=self.model,
+            batch_size=batch_size, model_dir=self.model_dir,
+            norm=self.mmap_normalise, epochs_done=len(self.epoch_mmaps))
+        self.model.fit(x=x, y=y, batch_size=batch_size, verbose=1,
+                       callbacks=[mmap_callback], epochs=num_epochs,
+                       validation_data=validation_data,
+                       # shuffle=False for memory maps!
+                       shuffle=False)
+        self.epoch_mmaps.extend(mmap_callback.epoch_mmaps)
+        print('Training complete')
+
+        print('Saving weights and mmaps...')
+        self.model.save_weights(model_filepath, overwrite=True)
+        with open(mmap_filepath, 'wb') as f:
+            pickle.dump(self.epoch_mmaps, f)
+        print('Saving complete')
 
     def evaluate(self, x, y):
         return self.model.evaluate(x, y)
