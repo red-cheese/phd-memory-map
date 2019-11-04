@@ -263,8 +263,142 @@ def gaussian3():
     print('Experiment 3 complete')
 
 
+def _run_model_with_mmap(dense_nn, train_x, train_y, test_x, test_y):
+    """
+    Helper method. Applies the mmap method to clean the data. Returns the final
+    trained model and the indices of removed batches.
+
+    Basically this is what happens in Experiment 3 (see above).
+    """
+
+    # All removed batches (original indexing).
+    removed_batch_idx = []
+    batch_mask = np.full(shape=(NUM_TRAIN_BATCHES,), fill_value=True, dtype=np.bool)
+    # TODO Track which batches are removed with the original indexing
+
+    dense_nn.fit(train_x, train_y, validation_data=(test_x, test_y),
+                 num_epochs=5)
+
+    last_mmap = dense_nn.epoch_mmaps[-1]
+    bad_batch_idx = _find_bad_batch(last_mmap)
+
+    # Remove bad batches and recalibrate until no more bad batches are found.
+    while bad_batch_idx:
+        train_x, train_y = _remove_batches(train_x, train_y, bad_batch_idx)
+        # TODO Track removed batches correctly
+        removed_batch_idx.extend(bad_batch_idx)
+
+        print('Recalibrating...')
+        # Recalibrate for 1 epoch and look at the last mmap again.
+        dense_nn.fit(train_x, train_y, validation_data=(test_x, test_y),
+                     num_epochs=1, continue_training=True)
+        print('Recalibration done')
+
+        last_mmap = dense_nn.epoch_mmaps[-1]
+        bad_batch_idx = _find_bad_batch(last_mmap)
+
+    # Final fitting to double check the mmap.
+    dense_nn.fit(train_x, train_y, validation_data=(test_x, test_y),
+                 num_epochs=1, continue_training=True)
+
+    return dense_nn, removed_batch_idx
+
+
+def _print_metrics(name, metrics):
+    print('{}:\tacc {}\tprecision {}\trecall {}'.format(
+        name,
+        np.mean(np.asarray(metrics['accuracy'])),
+        np.mean(np.asarray(metrics['precision'])),
+        np.mean(np.asarray(metrics['recall'])),
+    ))
+
+
+def gaussian4():
+    """
+    Experiment 4: assess quality of mmaps and other basic defenses, computing
+    MC estimates.
+    """
+
+    print('Experiment 4')
+
+    num_mc_runs = 1  # TODO 5
+
+    # =========================================================================
+    # Hyperparameters which are likely to affect the results greatly.
+    # =========================================================================
+    flip_proba = 0.5  # In each poisoned batch, 50% labels are flipped.
+    batch_poison_proba = 0.2  # 10% (0.5 * 0.2) of the training data are poisoned.
+    num_poisoned_batches = int(batch_poison_proba * NUM_TRAIN_BATCHES)
+    # =========================================================================
+
+    no_defense_1_metrics = {'accuracy': [], 'precision': [], 'recall': []}  # Baseline 1.
+    sphere_2_metrics = {'accuracy': [], 'precision': [], 'recall': []}  # Baseline 2.
+    slab_3_metrics = {'accuracy': [], 'precision': [], 'recall': []}  # Baseline 3.
+    mmap_4_metrics = {'accuracy': [], 'precision': [], 'recall': []}
+
+    for mc_idx in range(num_mc_runs):
+        print('MC run {} starting...'.format(mc_idx))
+
+        train_x, train_y, test_x, test_y = _basic_train_test()
+
+        # Randomly select which batches to poison.
+        poisoned_batch_idx = np.random.choice(np.arange(NUM_TRAIN_BATCHES),
+                                              size=num_poisoned_batches,
+                                              replace=False)
+        # Perform poisoning.
+        for batch_i in poisoned_batch_idx:
+            start, end = batch_i * BATCH_SIZE, (batch_i + 1) * BATCH_SIZE
+            train_y = _flip_labels(train_y, start, end, flip_proba)
+
+        # Baseline 1.
+        # Model trained for 5 epochs, no defense against poisoning.
+        print('Baseline 1 - NN with no defense against poisoning')
+        no_defense_1 = dense.DenseNN(name='gaussian4_1_{}'.format(mc_idx),
+                                 input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
+                                 classes=[0, 1], batch_size=BATCH_SIZE,
+                                 mmap_normalise=False)
+        no_defense_1.fit(train_x, train_y, validation_data=(test_x, test_y),
+                     num_epochs=5)
+        loss, acc = no_defense_1.evaluate(test_x, test_y)
+        no_defense_1_metrics['accuracy'].append(acc)
+        # no_defense_1_metrics['precision'].append(prec)  # TODO
+        # no_defense_1_metrics['recall'].append(rec)
+        print()
+
+        # Baseline 2.
+        # Remove outliers with sphere defense, then run a dense model.
+        # TODO
+
+        # Baseline 3.
+        # Remove outliers with slab defense, then run a dense model.
+        # TODO
+
+        # Method 4.
+        print('Main method - NN with mmap-based defense')
+        mmap_4 = dense.DenseNN(name='gaussian4_4_{}'.format(mc_idx),
+                                 input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
+                                 classes=[0, 1], batch_size=BATCH_SIZE,
+                                 mmap_normalise=False)
+        mmap_4, _ = _run_model_with_mmap(mmap_4, train_x, train_y, test_x, test_y)
+        loss, acc = mmap_4.evaluate(test_x, test_y)
+        mmap_4_metrics['accuracy'].append(acc)
+        # mmap_4_metrics['precision'].append(prec)
+        # mmap_4_metrics['recall'].append(rec)
+        print()
+
+        print('MC run {} complete'.format(mc_idx))
+        print()
+
+    print('Comparison results:')
+    _print_metrics('Baseline 1', no_defense_1_metrics)
+    _print_metrics('Mmap', mmap_4_metrics)
+
+    print()
+    print('Experiment 4 complete')
+
+
 def main():
-    gaussian3()
+    gaussian4()
 
 
 if __name__ == '__main__':

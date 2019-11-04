@@ -4,6 +4,7 @@ See https://github.com/keras-team/keras/blob/master/examples/mnist_mlp.py.
 """
 
 
+from keras import metrics
 from keras.layers import Dense, Dropout
 from keras.models import Sequential
 from keras.optimizers import SGD
