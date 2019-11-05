@@ -27,7 +27,7 @@ class DenseNN(base.BaseModel):
 
         model.compile(loss='categorical_crossentropy',
                       optimizer=SGD(),
-                      metrics=['accuracy',
+                      metrics=['accuracy',  # TODO Reimplement accuracy just to be sure
                                metrics.binary_precision,
                                metrics.binary_recall,
                                metrics.binary_f1])

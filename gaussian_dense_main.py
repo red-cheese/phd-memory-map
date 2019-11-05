@@ -406,7 +406,7 @@ def gaussian4():
                                  classes=[0, 1], batch_size=BATCH_SIZE,
                                  mmap_normalise=False)
         mmap_4, removed_batches = _run_model_with_mmap(mmap_4, train_x, train_y, test_x, test_y, train_batch_id)
-        loss, *metrics = mmap_4.evaluate(test_x, test_y)
+        loss, *metrics = mmap_4.evaluate(test_x, test_y)  # TODO Accuracy might not be best, reimplement!
         _save_metrics(mmap_4_metrics, metrics)
         print()
 
