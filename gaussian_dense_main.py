@@ -6,9 +6,11 @@ Sample from 2 Gaussians and classify them, track mmap.
 import matplotlib.pyplot as plt
 import numpy as np
 from itertools import cycle
+from keras import metrics as keras_metrics
 from numpy.random import multivariate_normal
 
 from ml import dense
+from ml import metrics as metrics_
 
 
 INPUT_DIM = 256
@@ -45,8 +47,8 @@ def _vstack(seq, shuffle=True):
 
 
 def _basic_train_test():
-    train_set_size = (NUM_TRAIN_BATCHES // 2) * BATCH_SIZE
-    test_set_size = (NUM_TEST_BATCHES // 2) * BATCH_SIZE
+    train_set_size = (NUM_TRAIN_BATCHES // 2) * BATCH_SIZE  # Per class.
+    test_set_size = (NUM_TEST_BATCHES // 2) * BATCH_SIZE  # Per class.
 
     mu_0 = np.full((INPUT_DIM,), 5., dtype=np.float64)
     sigma_0 = np.eye(INPUT_DIM, dtype=np.float64) * 0.1
@@ -65,7 +67,12 @@ def _basic_train_test():
                               (test_x_1, test_y_1)],
                              shuffle=True)
 
-    return train_x, train_y, test_x, test_y
+    # Helper array to track removed batches in the mmap-based defense.
+    train_batch_id = np.zeros((NUM_TRAIN_BATCHES * BATCH_SIZE,), dtype=np.int32)
+    for i in range(NUM_TRAIN_BATCHES):
+        train_batch_id[i * BATCH_SIZE:((i + 1) * BATCH_SIZE)] = i
+
+    return train_x, train_y, test_x, test_y, train_batch_id
 
 
 def _flip_labels(orig_labels, start_idx, end_idx, flip_proba):
@@ -82,11 +89,15 @@ def _flip_labels(orig_labels, start_idx, end_idx, flip_proba):
     return labels
 
 
-def _remove_batches(xs, ys, batches_to_remove):
+def _remove_batches(xs, ys, batches_to_remove, train_batch_id):
     batches_to_remove_set = set(batches_to_remove)
     to_keep = [i for i in range(xs.shape[0])
                if i // BATCH_SIZE not in batches_to_remove_set]
-    return xs[to_keep], ys[to_keep]
+    to_keep_set = set(to_keep)
+    removed_batches = {batch_id for j, batch_id in enumerate(train_batch_id)
+                       if j not in to_keep_set}
+    print('Removed bad batches:', sorted(removed_batches))
+    return xs[to_keep], ys[to_keep], train_batch_id[to_keep], removed_batches
 
 
 def _mmap_dist(ms1, ms2):
@@ -109,7 +120,7 @@ def _find_bad_batch(mmap):
     mean_, std_ = np.mean(avg_losses), np.std(avg_losses)
     bad_batches = [i for i, loss in enumerate(avg_losses)
                    if mean_ - 3 * std_ > loss or mean_ + 3 * std_ < loss]
-    print('Identified bad batches:', bad_batches)
+    print('(Warn: skewed indexing!) Identified bad batches:', bad_batches)
     return bad_batches
 
 
@@ -263,7 +274,15 @@ def gaussian3():
     print('Experiment 3 complete')
 
 
-def _run_model_with_mmap(dense_nn, train_x, train_y, test_x, test_y):
+def _run_model_with_sphere(dense_nn, train_x, train_y, test_x, test_y, train_batch_id):
+    pass
+
+
+def _run_model_with_slab(dense_nn, train_x, train_y, test_x, test_y, train_batch_id):
+    pass
+
+
+def _run_model_with_mmap(dense_nn, train_x, train_y, test_x, test_y, train_batch_id):
     """
     Helper method. Applies the mmap method to clean the data. Returns the final
     trained model and the indices of removed batches.
@@ -273,20 +292,17 @@ def _run_model_with_mmap(dense_nn, train_x, train_y, test_x, test_y):
 
     # All removed batches (original indexing).
     removed_batch_idx = []
-    batch_mask = np.full(shape=(NUM_TRAIN_BATCHES,), fill_value=True, dtype=np.bool)
-    # TODO Track which batches are removed with the original indexing
 
     dense_nn.fit(train_x, train_y, validation_data=(test_x, test_y),
-                 num_epochs=5)
+                 num_epochs=NUM_EPOCHS)
 
     last_mmap = dense_nn.epoch_mmaps[-1]
     bad_batch_idx = _find_bad_batch(last_mmap)
 
     # Remove bad batches and recalibrate until no more bad batches are found.
     while bad_batch_idx:
-        train_x, train_y = _remove_batches(train_x, train_y, bad_batch_idx)
-        # TODO Track removed batches correctly
-        removed_batch_idx.extend(bad_batch_idx)
+        train_x, train_y, train_batch_id, removed_batches = _remove_batches(train_x, train_y, bad_batch_idx, train_batch_id)
+        removed_batch_idx.extend(removed_batches)
 
         print('Recalibrating...')
         # Recalibrate for 1 epoch and look at the last mmap again.
@@ -304,12 +320,21 @@ def _run_model_with_mmap(dense_nn, train_x, train_y, test_x, test_y):
     return dense_nn, removed_batch_idx
 
 
+def _save_metrics(metrics_dict, metrics):
+    acc, prec, rec, f1 = metrics
+    metrics_dict['accuracy'].append(acc)
+    metrics_dict['precision'].append(prec)
+    metrics_dict['recall'].append(rec)
+    metrics_dict['f1'].append(f1)
+
+
 def _print_metrics(name, metrics):
-    print('{}:\tacc {}\tprecision {}\trecall {}'.format(
+    print('{}:\tacc {}\tprecision {}\trecall {}\tf1 {}'.format(
         name,
         np.mean(np.asarray(metrics['accuracy'])),
         np.mean(np.asarray(metrics['precision'])),
         np.mean(np.asarray(metrics['recall'])),
+        np.mean(np.asarray(metrics['f1'])),
     ))
 
 
@@ -321,7 +346,7 @@ def gaussian4():
 
     print('Experiment 4')
 
-    num_mc_runs = 1  # TODO 5
+    num_mc_runs = 5
 
     # =========================================================================
     # Hyperparameters which are likely to affect the results greatly.
@@ -331,15 +356,18 @@ def gaussian4():
     num_poisoned_batches = int(batch_poison_proba * NUM_TRAIN_BATCHES)
     # =========================================================================
 
-    no_defense_1_metrics = {'accuracy': [], 'precision': [], 'recall': []}  # Baseline 1.
-    sphere_2_metrics = {'accuracy': [], 'precision': [], 'recall': []}  # Baseline 2.
-    slab_3_metrics = {'accuracy': [], 'precision': [], 'recall': []}  # Baseline 3.
-    mmap_4_metrics = {'accuracy': [], 'precision': [], 'recall': []}
+    # Model (final classifier) quality.
+    no_defense_1_metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': []}  # Baseline 1.
+    # sphere_2_metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': []}  # Baseline 2.
+    # slab_3_metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': []}  # Baseline 3.
+    mmap_4_metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': []}
+    # Removal quality of batches: are we removing good batches or bad batches.
+    mmap_4_removal_metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': []}
 
     for mc_idx in range(num_mc_runs):
         print('MC run {} starting...'.format(mc_idx))
 
-        train_x, train_y, test_x, test_y = _basic_train_test()
+        train_x, train_y, test_x, test_y, train_batch_id = _basic_train_test()
 
         # Randomly select which batches to poison.
         poisoned_batch_idx = np.random.choice(np.arange(NUM_TRAIN_BATCHES),
@@ -358,11 +386,9 @@ def gaussian4():
                                  classes=[0, 1], batch_size=BATCH_SIZE,
                                  mmap_normalise=False)
         no_defense_1.fit(train_x, train_y, validation_data=(test_x, test_y),
-                     num_epochs=5)
-        loss, acc = no_defense_1.evaluate(test_x, test_y)
-        no_defense_1_metrics['accuracy'].append(acc)
-        # no_defense_1_metrics['precision'].append(prec)  # TODO
-        # no_defense_1_metrics['recall'].append(rec)
+                     num_epochs=NUM_EPOCHS)
+        loss, *metrics = no_defense_1.evaluate(test_x, test_y)
+        _save_metrics(no_defense_1_metrics, metrics)
         print()
 
         # Baseline 2.
@@ -379,12 +405,31 @@ def gaussian4():
                                  input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
                                  classes=[0, 1], batch_size=BATCH_SIZE,
                                  mmap_normalise=False)
-        mmap_4, _ = _run_model_with_mmap(mmap_4, train_x, train_y, test_x, test_y)
-        loss, acc = mmap_4.evaluate(test_x, test_y)
-        mmap_4_metrics['accuracy'].append(acc)
-        # mmap_4_metrics['precision'].append(prec)
-        # mmap_4_metrics['recall'].append(rec)
+        mmap_4, removed_batches = _run_model_with_mmap(mmap_4, train_x, train_y, test_x, test_y, train_batch_id)
+        loss, *metrics = mmap_4.evaluate(test_x, test_y)
+        _save_metrics(mmap_4_metrics, metrics)
         print()
+
+        # Quality of removing batches.
+        # Prepare one-hot encoded results.
+        y_true = np.zeros((NUM_TRAIN_BATCHES, 2))
+        y_true[:, 0] = 1.
+        y_true[sorted(poisoned_batch_idx), 0] = 0.
+        y_true[sorted(poisoned_batch_idx), 1] = 1.
+
+        y_pred = np.zeros((NUM_TRAIN_BATCHES, 2))
+        y_pred[:, 0] = 1.
+        y_pred[sorted(removed_batches), 0] = 0.
+        y_pred[sorted(removed_batches), 1] = 1.
+
+        acc = keras_metrics.categorical_accuracy(y_true, y_pred)
+        prec = metrics_.binary_precision(y_true, y_pred)
+        rec = metrics_.binary_recall(y_true, y_pred)
+        f1 = metrics_.binary_f1(y_true, y_pred)
+        _save_metrics(mmap_4_removal_metrics, (acc, prec, rec, f1))
+
+        print('All bad batches:', sorted(poisoned_batch_idx))
+        print('All removed batches:', sorted(removed_batches))
 
         print('MC run {} complete'.format(mc_idx))
         print()
@@ -392,6 +437,8 @@ def gaussian4():
     print('Comparison results:')
     _print_metrics('Baseline 1', no_defense_1_metrics)
     _print_metrics('Mmap', mmap_4_metrics)
+    print()
+    _print_metrics('Mmap quality of removing batches', mmap_4_removal_metrics)
 
     print()
     print('Experiment 4 complete')
