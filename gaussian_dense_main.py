@@ -100,6 +100,10 @@ def _remove_batches(xs, ys, batches_to_remove, train_batch_id):
     return xs[to_keep], ys[to_keep], train_batch_id[to_keep], removed_batches
 
 
+def _dist(x1, x2):
+    return np.linalg.norm(x1 - x2) ** 2
+
+
 def _mmap_dist(ms1, ms2):
     """Returns distances between per-epoch memory maps."""
     return [np.linalg.norm(m1 - m2) for m1, m2 in zip(ms1, ms2)]
@@ -274,11 +278,50 @@ def gaussian3():
     print('Experiment 3 complete')
 
 
-def _run_model_with_sphere(dense_nn, train_x, train_y, test_x, test_y, train_batch_id):
-    pass
+def _run_model_with_sphere(dense_nn, train_x, train_y, test_x, test_y,
+                           train_batch_id, limit_flip_proba):
+    """
+    Sphere defense is a data sanitisation defense.
+
+    See https://papers.nips.cc/paper/6943-certified-defenses-for-data-poisoning-attacks.pdf.
+    """
+
+    # All removed batches (original indexing).
+    removed_batch_idx = []
+
+    # Centroids of the two clusters (the data are already poisoned).
+    class0 = train_y[:, 0] == 1
+    mu0 = np.mean(train_x[class0], axis=0)
+    class1 = train_y[:, 1] == 1
+    mu1 = np.mean(train_x[class1], axis=0)
+    print('Centroids: class 0 = {}, class 1 = {}'.format(mu0, mu1))
+
+    # The allowed radius is 1/2 of the distance between the two centroids.
+    r = 0.5 * _dist(mu0, mu1)
+
+    for i in range(NUM_TRAIN_BATCHES):
+        batch_x = train_x[(i * BATCH_SIZE):((i + 1) * BATCH_SIZE)]
+        batch_y = train_y[(i * BATCH_SIZE):((i + 1) * BATCH_SIZE)]
+        batch_x_0 = batch_x[np.argmax(batch_y, axis=1) == 0]
+        batch_x_1 = batch_x[np.argmax(batch_y, axis=1) == 1]
+        num_poisoned = len([x for x in batch_x_0 if _dist(x, mu0) >= r])
+        num_poisoned += len([x for x in batch_x_1 if _dist(x, mu1) >= r])
+        if num_poisoned >= BATCH_SIZE * limit_flip_proba:
+            removed_batch_idx.append(i)
+
+    # Remove the identified batches.
+    train_x, train_y, _, _ = _remove_batches(train_x, train_y,
+                                             removed_batch_idx, train_batch_id)
+
+    # Fit the model.
+    dense_nn.fit(train_x, train_y, validation_data=(test_x, test_y),
+                 num_epochs=NUM_EPOCHS)
+
+    return dense_nn, removed_batch_idx
 
 
-def _run_model_with_slab(dense_nn, train_x, train_y, test_x, test_y, train_batch_id):
+def _run_model_with_slab(dense_nn, train_x, train_y, test_x, test_y,
+                         train_batch_id, limit_flip_proba):
     pass
 
 
@@ -328,6 +371,28 @@ def _save_metrics(metrics_dict, metrics):
     metrics_dict['f1'].append(f1)
 
 
+def _save_removal_metrics(metrics_dict, true_poisoned_batches, removed_batches):
+    # Prepare one-hot encoded results.
+    y_true = np.zeros((NUM_TRAIN_BATCHES, 2))
+    y_true[:, 0] = 1.
+    y_true[sorted(true_poisoned_batches), 0] = 0.
+    y_true[sorted(true_poisoned_batches), 1] = 1.
+
+    y_pred = np.zeros((NUM_TRAIN_BATCHES, 2))
+    y_pred[:, 0] = 1.
+    y_pred[sorted(removed_batches), 0] = 0.
+    y_pred[sorted(removed_batches), 1] = 1.
+
+    acc = keras_metrics.categorical_accuracy(y_true, y_pred)
+    prec = metrics_.binary_precision(y_true, y_pred)
+    rec = metrics_.binary_recall(y_true, y_pred)
+    f1 = metrics_.binary_f1(y_true, y_pred)
+    _save_metrics(metrics_dict, (acc, prec, rec, f1))
+
+    print('All bad batches:', sorted(true_poisoned_batches))
+    print('All removed batches:', sorted(removed_batches))
+
+
 def _print_metrics(name, metrics):
     print('{}:\tacc {}\tprecision {}\trecall {}\tf1 {}'.format(
         name,
@@ -358,10 +423,11 @@ def gaussian4():
 
     # Model (final classifier) quality.
     no_defense_1_metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': []}  # Baseline 1.
-    # sphere_2_metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': []}  # Baseline 2.
+    sphere_2_metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': []}  # Baseline 2.
     # slab_3_metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': []}  # Baseline 3.
     mmap_4_metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': []}
     # Removal quality of batches: are we removing good batches or bad batches.
+    sphere_2_removal_metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': []}
     mmap_4_removal_metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': []}
 
     for mc_idx in range(num_mc_runs):
@@ -381,7 +447,7 @@ def gaussian4():
         # Baseline 1.
         # Model trained for 5 epochs, no defense against poisoning.
         print('Baseline 1 - NN with no defense against poisoning')
-        no_defense_1 = dense.DenseNN(name='gaussian4_1_{}'.format(mc_idx),
+        no_defense_1 = dense.DenseNN(name='gaussian4a_1_{}'.format(mc_idx),
                                  input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
                                  classes=[0, 1], batch_size=BATCH_SIZE,
                                  mmap_normalise=False)
@@ -393,7 +459,16 @@ def gaussian4():
 
         # Baseline 2.
         # Remove outliers with sphere defense, then run a dense model.
-        # TODO
+        print('Baseline 2 - sphere defence')
+        sphere_2 = dense.DenseNN(name='gaussian4a_2_{}'.format(mc_idx),
+                                 input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
+                                 classes=[0, 1], batch_size=BATCH_SIZE,
+                                 mmap_normalise=False)
+        sphere_2, sphere_2_removed_batches = _run_model_with_sphere(sphere_2, train_x, train_y, test_x, test_y, train_batch_id, flip_proba)
+        loss, *metrics = sphere_2.evaluate(test_x, test_y)
+        _save_metrics(sphere_2_metrics, metrics)
+        _save_removal_metrics(sphere_2_removal_metrics, poisoned_batch_idx, sphere_2_removed_batches)
+        print()
 
         # Baseline 3.
         # Remove outliers with slab defense, then run a dense model.
@@ -401,43 +476,25 @@ def gaussian4():
 
         # Method 4.
         print('Main method - NN with mmap-based defense')
-        mmap_4 = dense.DenseNN(name='gaussian4_4_{}'.format(mc_idx),
+        mmap_4 = dense.DenseNN(name='gaussian4a_4_{}'.format(mc_idx),
                                  input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
                                  classes=[0, 1], batch_size=BATCH_SIZE,
                                  mmap_normalise=False)
         mmap_4, removed_batches = _run_model_with_mmap(mmap_4, train_x, train_y, test_x, test_y, train_batch_id)
         loss, *metrics = mmap_4.evaluate(test_x, test_y)  # TODO Accuracy might not be best, reimplement!
         _save_metrics(mmap_4_metrics, metrics)
+        _save_removal_metrics(mmap_4_removal_metrics, poisoned_batch_idx, removed_batches)
         print()
-
-        # Quality of removing batches.
-        # Prepare one-hot encoded results.
-        y_true = np.zeros((NUM_TRAIN_BATCHES, 2))
-        y_true[:, 0] = 1.
-        y_true[sorted(poisoned_batch_idx), 0] = 0.
-        y_true[sorted(poisoned_batch_idx), 1] = 1.
-
-        y_pred = np.zeros((NUM_TRAIN_BATCHES, 2))
-        y_pred[:, 0] = 1.
-        y_pred[sorted(removed_batches), 0] = 0.
-        y_pred[sorted(removed_batches), 1] = 1.
-
-        acc = keras_metrics.categorical_accuracy(y_true, y_pred)
-        prec = metrics_.binary_precision(y_true, y_pred)
-        rec = metrics_.binary_recall(y_true, y_pred)
-        f1 = metrics_.binary_f1(y_true, y_pred)
-        _save_metrics(mmap_4_removal_metrics, (acc, prec, rec, f1))
-
-        print('All bad batches:', sorted(poisoned_batch_idx))
-        print('All removed batches:', sorted(removed_batches))
 
         print('MC run {} complete'.format(mc_idx))
         print()
 
     print('Comparison results:')
     _print_metrics('Baseline 1', no_defense_1_metrics)
+    _print_metrics('Sphere 2', sphere_2_metrics)
     _print_metrics('Mmap', mmap_4_metrics)
     print()
+    _print_metrics('Sphere quality of removing batches', sphere_2_removal_metrics)
     _print_metrics('Mmap quality of removing batches', mmap_4_removal_metrics)
 
     print()
