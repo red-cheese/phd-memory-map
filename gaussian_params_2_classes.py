@@ -14,5 +14,24 @@ DISTRIB_PARAMS = [
         np.full((INPUT_DIM,), 2., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64)
     ),
 
+    (
+        #
+        'exp1',
+        np.full((INPUT_DIM,), 2.5, dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64) * 0.2,
+        np.full((INPUT_DIM,), 4., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64) * 0.2
+    ),
 
+    (
+        #
+        'exp2',
+        np.full((INPUT_DIM,), 2.5, dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64) * 0.2,
+        np.full((INPUT_DIM,), 4., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64) * 0.5
+    ),
+
+    (
+        #
+        'exp3',
+        np.full((INPUT_DIM,), 3., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64),
+        np.full((INPUT_DIM,), 3., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64) * 0.05
+    ),
 ]
