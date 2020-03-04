@@ -22,8 +22,7 @@ class BaseModel:
             num_epochs=_DEFAULT_NUM_EPOCHS,
             # If True, will load the existing model and continue training.
             continue_training=False):
-        if not os.path.isdir(self.model_dir):
-            os.makedirs(self.model_dir)
+        os.makedirs(self.model_dir, exist_ok=True)
 
         model_filepath = os.path.join(self.model_dir, '1.model')
         mmap_filepath = os.path.join(self.model_dir, '1.mmap')

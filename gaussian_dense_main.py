@@ -5,9 +5,12 @@ Sample from 2 Gaussians and classify them, track mmap.
 
 import matplotlib.pyplot as plt
 import numpy as np
+import os
+import seaborn as sns
 from itertools import cycle
 from keras import metrics as keras_metrics
 from numpy.random import multivariate_normal
+from scipy.stats import kstest, norm, normaltest, probplot, shapiro
 
 from ml import dense
 from ml import metrics as metrics_
@@ -46,17 +49,21 @@ def _vstack(seq, shuffle=True):
     return x, y
 
 
-def _basic_train_test():
+def _basic_train_test(mu_0=None, sigma_0=None, mu_1=None, sigma_1=None, plot_dir=None):
     train_set_size = (NUM_TRAIN_BATCHES // 2) * BATCH_SIZE  # Per class.
     test_set_size = (NUM_TEST_BATCHES // 2) * BATCH_SIZE  # Per class.
 
-    mu_0 = np.full((INPUT_DIM,), 5., dtype=np.float64)
-    sigma_0 = np.eye(INPUT_DIM, dtype=np.float64) * 0.1
+    if mu_0 is None:
+        mu_0 = np.full((INPUT_DIM,), 5., dtype=np.float64)
+    if sigma_0 is None:
+        sigma_0 = np.eye(INPUT_DIM, dtype=np.float64) * 0.1
     train_x_0, train_y_0 = _generate_data(mu_0, sigma_0, 0, train_set_size)
     test_x_0, test_y_0 = _generate_data(mu_0, sigma_0, 0, test_set_size)
 
-    mu_1 = np.full((INPUT_DIM,), 2., dtype=np.float64)
-    sigma_1 = np.eye(INPUT_DIM, dtype=np.float64) * 1.
+    if mu_1 is None:
+        mu_1 = np.full((INPUT_DIM,), 2., dtype=np.float64)
+    if sigma_1 is None:
+        sigma_1 = np.eye(INPUT_DIM, dtype=np.float64) * 1.
     train_x_1, train_y_1 = _generate_data(mu_1, sigma_1, 1, train_set_size)
     test_x_1, test_y_1 = _generate_data(mu_1, sigma_1, 1, test_set_size)
 
@@ -71,6 +78,24 @@ def _basic_train_test():
     train_batch_id = np.zeros((NUM_TRAIN_BATCHES * BATCH_SIZE,), dtype=np.int32)
     for i in range(NUM_TRAIN_BATCHES):
         train_batch_id[i * BATCH_SIZE:((i + 1) * BATCH_SIZE)] = i
+
+    if plot_dir:
+        # Plot first two components of the two Gaussians.
+        # train_set_size is per class, hence sample 10% of all data.
+        sample_idx = np.random.choice(np.arange(train_x.shape[0]), replace=False, size=int(0.2 * train_set_size))
+        sample_idx = sorted(sample_idx)
+        train_x_sample = train_x[sample_idx]
+        train_y_sample = train_y[sample_idx]
+        tmp = train_x_sample[train_y_sample[:, 0] == 1]
+        plt.scatter(tmp[0], tmp[1], color='blue', s=1, label='Class 0')
+        tmp = train_x_sample[train_y_sample[:, 1] == 1]
+        plt.scatter(tmp[0], tmp[1], color='red', s=1, label='Class 1')
+        plt.xlabel('Component 0')
+        plt.ylabel('Component 1')
+        plt.legend()
+        plt.title('Data - first 2 components')
+        plt.savefig('{}/data.png'.format(plot_dir), dpi=150)
+        plt.gcf().clear()
 
     return train_x, train_y, test_x, test_y, train_batch_id
 
@@ -149,6 +174,145 @@ def gaussian0():
 
     print()
     print('Experiment 0 complete')
+
+
+def gaussian0a_loss_distrib():
+    """
+    Experiment 0a: monitor distributions of mmap values (across all batches)
+    at each training step, for several different pairs of Gaussians.
+
+    No poisoning, static IID data.
+
+    Inspired by
+    https://machinelearningmastery.com/a-gentle-introduction-to-normality-tests-in-python/
+    """
+
+    parent_dir = 'gaussian0a_loss_distrib'
+    num_epochs = 10
+
+    # List of experiment specs: [ Exp 1: (mu0, sigma0, mu1, sigma1), ... ]
+    distrib_params = [
+        (
+            # G1: (5.0, 0.1 * I), G2: (2.0, I) - very well separated Gaussians
+            'exp0',
+            np.full((INPUT_DIM,), 5., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64) * 0.1,
+            np.full((INPUT_DIM,), 2., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64)
+        ),
+    ]
+
+    for exp_id, mu0, sigma0, mu1, sigma1 in distrib_params:
+        print()
+        print('==============================')
+        print()
+        print('Experiment ID:', exp_id)
+        experiment_dir = '{}/{}'.format(parent_dir, exp_id)
+        os.makedirs(experiment_dir, exist_ok=True)
+
+        train_x, train_y, test_x, test_y, _ = _basic_train_test(mu_0=mu0, sigma_0=sigma0, mu_1=mu1, sigma_1=sigma1,
+                                                                plot_dir=experiment_dir)
+
+        dense_nn = dense.DenseNN(parent_dir=experiment_dir,
+                                 name=exp_id,
+                                 input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
+                                 classes=[0, 1], batch_size=BATCH_SIZE,
+                                 mmap_normalise=False)
+        model_dir = dense_nn.model_dir
+        epochs_done = len(dense_nn.epoch_mmaps)
+        print('Model dir:', model_dir)
+        print('Epochs already done:', epochs_done)
+
+        for epoch in range(num_epochs):
+            current_epoch = epochs_done + epoch + 1
+
+            dense_nn.fit(train_x, train_y, validation_data=(test_x, test_y), num_epochs=1,
+                         continue_training=True)
+            mmap = dense_nn.epoch_mmaps[-1]
+
+            # Plot 1: Sample means and stds of losses for each training step.
+            mmap_means = np.mean(mmap, axis=0)
+            mmap_stds = np.std(mmap, axis=0)
+            # plt.plot(np.arange(len(mmap_means)), mmap_means, color='green', label='Sample mean')
+            sns.regplot(np.arange(len(mmap_means)), mmap_means, color='green', label='Sample mean', scatter_kws={'s': 2})
+            # plt.plot(np.arange(len(mmap_stds)), mmap_stds, color='orange', label='Sample std')
+            sns.regplot(np.arange(len(mmap_stds)), mmap_stds, color='orange', label='Sample std', scatter_kws={'s': 2})
+            plt.xlabel('Training step')
+            plt.xlabel('Value')
+            plt.legend()
+            plt.title('Sample mean and std of losses per training step - epoch {}'.format(current_epoch))
+            plt.savefig('./{}/epoch{}_means_stds.png'.format(model_dir, current_epoch), dpi=150)
+            plt.gcf().clear()
+
+            # Plot 2: Histograms of losses for each 10th training step, plotted all together.
+            for i in range(5, NUM_TRAIN_BATCHES, 10):
+                step_losses = mmap[:, i]  # Losses for all batches on step i.
+                plt.hist(step_losses, bins=15, density=False, alpha=0.5, label='after step {}'.format(i),
+                         edgecolor='black', linewidth=0.5)
+            plt.xlabel('Loss value')
+            plt.ylabel('Frequency')
+            plt.legend()
+            plt.title('Losses per training step - epoch {}'.format(current_epoch))
+            plt.savefig('./{}/epoch{}_hist.png'.format(model_dir, current_epoch), dpi=150)
+            plt.gcf().clear()
+
+            # Plot 3: Test batch losses per training step for normality.
+            assert mmap.shape[0] == mmap.shape[1] == NUM_TRAIN_BATCHES  # As no data gets removed.
+            W_stats, p_sw_values = [], []  # Shapiro-Wilk
+            D_stats, p_ks_values = [], []  # KS
+            K2_stats, p_k2_values = [], []  # K^2
+            step_losses = None
+            for i in range(mmap.shape[1]):
+                step_losses = mmap[:, i]  # Sample.
+
+                # Shapiro-Wilk.
+                W, p_sw = shapiro(step_losses)
+                W_stats.append(W)
+                p_sw_values.append(p_sw)
+
+                # Kolmogorov-Smirnov.
+                # Need to fit first.
+                loc, scale = norm.fit(step_losses)
+                dist = norm(loc, scale)
+                D, p_ks = kstest(step_losses, dist.cdf, N=len(step_losses))
+                D_stats.append(D)
+                p_ks_values.append(p_ks)
+
+                # K^2.
+                K2, p_k2 = normaltest(step_losses)
+                K2_stats.append(K2)
+                p_k2_values.append(p_k2)
+
+            # QQ-plot on the last step losses.
+            probplot(step_losses, plot=plt)
+            plt.title('QQ plot for last step losses - epoch {}'.format(current_epoch))
+            plt.savefig('./{}/epoch{}_qq.png'.format(model_dir, current_epoch), dpi=150)
+            plt.gcf().clear()
+
+            sns.regplot(np.arange(len(W_stats)), np.log(W_stats), color='green', label='Shapiro-Wilk test statistic (log)', scatter_kws={'s': 2})
+            sns.regplot(np.arange(len(p_sw_values)), p_sw_values, color='orange', label='p-value', scatter_kws={'s': 2})
+            plt.xlabel('Training step')
+            plt.ylabel('Value')
+            plt.legend()
+            plt.title('Shapiro-Wilk test statistic and p-value per training step - epoch {}'.format(current_epoch))
+            plt.savefig('./{}/epoch{}_shapiro.png'.format(model_dir, current_epoch), dpi=150)
+            plt.gcf().clear()
+
+            sns.regplot(np.arange(len(D_stats)), np.log(D_stats), color='green', label='Kolmogorov-Smirnov test statistic (log)', scatter_kws={'s': 2})
+            sns.regplot(np.arange(len(p_ks_values)), p_ks_values, color='orange', label='p-value', scatter_kws={'s': 2})
+            plt.xlabel('Training step')
+            plt.ylabel('Value')
+            plt.legend()
+            plt.title('Kolmogorov-Smirnov test statistic and p-value per training step - epoch {}'.format(current_epoch))
+            plt.savefig('./{}/epoch{}_ks.png'.format(model_dir, current_epoch), dpi=150)
+            plt.gcf().clear()
+
+            sns.regplot(np.arange(len(K2_stats)), np.log(K2_stats), color='green', label='K^2 test statistic (log)', scatter_kws={'s': 2})
+            sns.regplot(np.arange(len(p_k2_values)), p_k2_values, color='orange', label='p-value', scatter_kws={'s': 2})
+            plt.xlabel('Training step')
+            plt.ylabel('Value')
+            plt.legend()
+            plt.title("D'Agostino K^2 test statistic and p-value per training step - epoch {}".format(current_epoch))
+            plt.savefig('./{}/epoch{}_dagostino_k2.png'.format(model_dir, current_epoch), dpi=150)
+            plt.gcf().clear()
 
 
 def gaussian1():
@@ -502,7 +666,7 @@ def gaussian4():
 
 
 def main():
-    gaussian4()
+    gaussian0a_loss_distrib()
 
 
 if __name__ == '__main__':

@@ -15,7 +15,8 @@ class DenseNN(base.BaseModel):
 
     def build_model(self, name,
                     input_dim, h1_dim, h2_dim,
-                    batch_size, classes):
+                    batch_size, classes,
+                    parent_dir=None):
         model = Sequential()
         model.add(Dense(h1_dim, activation='relu', input_shape=(input_dim,)))
         # model.add(Dropout(0.2))
@@ -34,5 +35,7 @@ class DenseNN(base.BaseModel):
 
         model_dir = '{}_inputdim={}_classes={}_batch={}'.format(
             name, input_dim, '-'.join([str(c) for c in classes]), batch_size)
+        if parent_dir:
+            model_dir = '{}/{}'.format(parent_dir, model_dir)
 
         return model, model_dir
