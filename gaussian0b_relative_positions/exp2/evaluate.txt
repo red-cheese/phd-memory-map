@@ -1,0 +1,9 @@
+Accuracy: 0.953125
+Precision: 0.9135821461677551
+Recall: 1.0
+F1: 0.9535300135612488
+
+Total removed batches: 3
+Epoch 10 -> removed batches {4}
+Epoch 11 -> removed batches {39}
+Epoch 12 -> removed batches {66}

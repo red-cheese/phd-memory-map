@@ -56,16 +56,16 @@ def gaussian0a_loss_distrib():
     num_epochs = 10
 
     # List of experiment specs: [ Exp 1: (mu0, sigma0, mu1, sigma1), ... ]
-    distrib_params = [
-        (
-            # G1: (5.0, 0.1 * I), G2: (2.0, I) - very well separated Gaussians
-            'exp0',
-            np.full((INPUT_DIM,), 5., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64) * 0.1,
-            np.full((INPUT_DIM,), 2., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64)
-        ),
-    ]
+    # distrib_params = [
+    #     (
+    #         # G1: (5.0, 0.1 * I), G2: (2.0, I) - very well separated Gaussians
+    #         'exp0',
+    #         np.full((INPUT_DIM,), 5., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64) * 0.1,
+    #         np.full((INPUT_DIM,), 2., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64)
+    #     ),
+    # ]
 
-    for exp_id, mu0, sigma0, mu1, sigma1 in distrib_params:
+    for exp_id, mu0, sigma0, mu1, sigma1 in DISTRIB_PARAMS:
         print()
         print('==============================')
         print()
@@ -196,8 +196,34 @@ def gaussian0b_relative_positions():
         os.makedirs(experiment_dir, exist_ok=True)
 
         # This will plot samples from the training set.
-        train_x, train_y, test_x, test_y, _ = basic_train_test(mu_0=mu0, sigma_0=sigma0, mu_1=mu1, sigma_1=sigma1,
-                                                               plot_dir=experiment_dir)
+        train_x, train_y, test_x, test_y, train_batch_id = basic_train_test(mu_0=mu0, sigma_0=sigma0, mu_1=mu1, sigma_1=sigma1,
+                                                                            plot_dir=experiment_dir)
+
+        dense_nn = dense.DenseNN(parent_dir=experiment_dir,
+                                 name=exp_id,
+                                 input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
+                                 classes=[0, 1], batch_size=BATCH_SIZE,
+                                 mmap_normalise=False)
+        model_dir = dense_nn.model_dir
+        epochs_done = len(dense_nn.epoch_mmaps)
+        print('Model dir:', model_dir)
+        print('Epochs already done:', epochs_done)
+
+        dense_nn, removed_batch_idx = _run_model_with_mmap(dense_nn, train_x, train_y, test_x, test_y, train_batch_id, num_epochs=num_epochs)
+        print('Total removed batches:', len(removed_batch_idx))
+        print('Removed batches:', removed_batch_idx)
+        loss, *metrics = dense_nn.evaluate(test_x, test_y)
+
+        with open('{}/evaluate.txt'.format(experiment_dir), 'wt') as f:
+            f.write('Accuracy: {}\n'.format(metrics[0]))
+            f.write('Precision: {}\n'.format(metrics[1]))
+            f.write('Recall: {}\n'.format(metrics[2]))
+            f.write('F1: {}\n\n'.format(metrics[3]))
+            f.write('Total removed batches: {}'.format(sum([len(yy) for _, yy in removed_batch_idx])))
+            f.write('\n')
+            for epoch_id, removed_batches in removed_batch_idx:
+                f.write('Epoch {} -> removed batches {}\n'.format(epoch_id, removed_batches))
+
 
 def gaussian1():
     """
@@ -385,9 +411,10 @@ def _run_model_with_mmap(dense_nn, train_x, train_y, test_x, test_y, train_batch
     bad_batch_idx = find_bad_batch(last_mmap)
 
     # Remove bad batches and recalibrate until no more bad batches are found.
+    i = 0
     while bad_batch_idx:
         train_x, train_y, train_batch_id, removed_batches = remove_batches(train_x, train_y, bad_batch_idx, train_batch_id)
-        removed_batch_idx.extend(removed_batches)
+        removed_batch_idx.append((num_epochs + i, removed_batches))
 
         print('Recalibrating...')
         # Recalibrate for 1 epoch and look at the last mmap again.
@@ -397,6 +424,7 @@ def _run_model_with_mmap(dense_nn, train_x, train_y, test_x, test_y, train_batch
 
         last_mmap = dense_nn.epoch_mmaps[-1]
         bad_batch_idx = find_bad_batch(last_mmap)
+        i += 1
 
     # Final fitting to double check the mmap.
     dense_nn.fit(train_x, train_y, validation_data=(test_x, test_y),
@@ -544,6 +572,7 @@ def gaussian4():
 
 
 def main():
+    # gaussian0a_loss_distrib()
     gaussian0b_relative_positions()
 
 

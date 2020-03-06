@@ -1,0 +1,6 @@
+Accuracy: 0.999218761920929
+Precision: 1.0
+Recall: 0.9983333349227905
+F1: 0.9991378784179688
+
+Total removed batches: 0
