@@ -84,9 +84,9 @@ def basic_train_test(mu_0=None, sigma_0=None, mu_1=None, sigma_1=None, plot_dir=
         train_x_sample = train_x[sample_idx]
         train_y_sample = train_y[sample_idx]
         tmp = train_x_sample[train_y_sample[:, 0] == 1]
-        plt.scatter(tmp[0], tmp[1], color='blue', s=1, label='Class 0')
+        plt.scatter(tmp[:, 0], tmp[:, 1], color='blue', s=1, label='Class 0')
         tmp = train_x_sample[train_y_sample[:, 1] == 1]
-        plt.scatter(tmp[0], tmp[1], color='red', s=1, label='Class 1')
+        plt.scatter(tmp[:, 0], tmp[:, 1], color='red', s=1, label='Class 1')
         plt.xlabel('Component 0')
         plt.ylabel('Component 1')
         plt.legend()
