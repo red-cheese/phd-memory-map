@@ -15,8 +15,6 @@ from ml import dense
 from ml import metrics as metrics_
 from utils import *
 
-NUM_EPOCHS = 5
-
 
 def gaussian0():
     """
@@ -52,18 +50,7 @@ def gaussian0a_loss_distrib():
     https://machinelearningmastery.com/a-gentle-introduction-to-normality-tests-in-python/
     """
 
-    parent_dir = 'gaussian0a_loss_distrib'
-    num_epochs = 10
-
-    # List of experiment specs: [ Exp 1: (mu0, sigma0, mu1, sigma1), ... ]
-    # distrib_params = [
-    #     (
-    #         # G1: (5.0, 0.1 * I), G2: (2.0, I) - very well separated Gaussians
-    #         'exp0',
-    #         np.full((INPUT_DIM,), 5., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64) * 0.1,
-    #         np.full((INPUT_DIM,), 2., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64)
-    #     ),
-    # ]
+    parent_dir = 'gaussian0a_loss_distrib_in10'
 
     for exp_id, mu0, sigma0, mu1, sigma1 in DISTRIB_PARAMS:
         print()
@@ -78,7 +65,7 @@ def gaussian0a_loss_distrib():
 
         dense_nn = dense.DenseNN(parent_dir=experiment_dir,
                                  name=exp_id,
-                                 input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
+                                 input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
                                  classes=[0, 1], batch_size=BATCH_SIZE,
                                  mmap_normalise=False)
         model_dir = dense_nn.model_dir
@@ -86,96 +73,98 @@ def gaussian0a_loss_distrib():
         print('Model dir:', model_dir)
         print('Epochs already done:', epochs_done)
 
-        for epoch in range(num_epochs):
+        for epoch in range(NUM_EPOCHS):
             current_epoch = epochs_done + epoch + 1
 
             dense_nn.fit(train_x, train_y, validation_data=(test_x, test_y), num_epochs=1,
                          continue_training=True)
-            mmap = dense_nn.epoch_mmaps[-1]
+            mmap, mmap0, mmap1 = dense_nn.epoch_mmaps[-1]
 
             # Plot 1: Sample means and stds of losses for each training step.
-            mmap_means = np.mean(mmap, axis=0)
-            mmap_stds = np.std(mmap, axis=0)
-            sns.regplot(np.arange(len(mmap_means)), mmap_means, color='green', label='Sample mean', scatter_kws={'s': 2})
-            sns.regplot(np.arange(len(mmap_stds)), mmap_stds, color='orange', label='Sample std', scatter_kws={'s': 2})
-            plt.xlabel('Training step')
-            plt.xlabel('Value')
-            plt.legend()
-            plt.title('Sample mean and std of losses per training step - epoch {}'.format(current_epoch))
-            plt.savefig('./{}/epoch{}_means_stds.png'.format(model_dir, current_epoch), dpi=150)
-            plt.gcf().clear()
+            # mmap_means = np.mean(mmap, axis=0)
+            # mmap_stds = np.std(mmap, axis=0)
+            # sns.regplot(np.arange(len(mmap_means)), mmap_means, color='green', label='Sample mean', scatter_kws={'s': 2})
+            # sns.regplot(np.arange(len(mmap_stds)), mmap_stds, color='orange', label='Sample std', scatter_kws={'s': 2})
+            # plt.xlabel('Training step')
+            # plt.xlabel('Value')
+            # plt.legend()
+            # plt.title('Sample mean and std of losses per training step - epoch {}'.format(current_epoch))
+            # plt.savefig('./{}/epoch{}_means_stds.png'.format(model_dir, current_epoch), dpi=150)
+            # plt.gcf().clear()
 
             # Plot 2: Histograms of losses for each 10th training step, plotted all together.
-            for i in range(5, NUM_TRAIN_BATCHES, 10):
-                step_losses = mmap[:, i]  # Losses for all batches on step i.
-                plt.hist(step_losses, bins=15, density=False, alpha=0.5, label='after step {}'.format(i),
-                         edgecolor='black', linewidth=0.5)
-            plt.xlabel('Loss value')
-            plt.ylabel('Frequency')
-            plt.legend()
-            plt.title('Losses per training step - epoch {}'.format(current_epoch))
-            plt.savefig('./{}/epoch{}_hist.png'.format(model_dir, current_epoch), dpi=150)
-            plt.gcf().clear()
+            # for mm_name, mm in [('mmap', mmap), ('mmap0', mmap0), ('mmap1', mmap1)]:
+            for mm_name, mm in [('mmap', mmap),]:
+                for i in range(5, NUM_TRAIN_BATCHES, 10):
+                    step_losses = mm[:, i]  # Losses for all batches on step i.
+                    plt.hist(step_losses, bins=15, density=False, alpha=0.5, label='after step {}'.format(i),
+                             edgecolor='black', linewidth=0.5)
+                plt.xlabel('Loss value')
+                plt.ylabel('Frequency')
+                plt.legend()
+                plt.title('Losses per training step - epoch {}'.format(current_epoch))
+                plt.savefig('./{}/{}_epoch{}_hist.png'.format(model_dir, mm_name, current_epoch), dpi=150)
+                plt.gcf().clear()
 
-            # Plot 3: Test batch losses per training step for normality.
-            assert mmap.shape[0] == mmap.shape[1] == NUM_TRAIN_BATCHES  # As no data gets removed.
-            W_stats, p_sw_values = [], []  # Shapiro-Wilk
-            D_stats, p_ks_values = [], []  # KS
-            K2_stats, p_k2_values = [], []  # K^2
-            step_losses = None
-            for i in range(mmap.shape[1]):
-                step_losses = mmap[:, i]  # Sample.
+                # Plot 3: Test batch losses per training step for normality.
+                assert mm.shape[0] == mm.shape[1] == NUM_TRAIN_BATCHES  # As no data gets removed.
+                W_stats, p_sw_values = [], []  # Shapiro-Wilk
+                D_stats, p_ks_values = [], []  # KS
+                K2_stats, p_k2_values = [], []  # K^2
+                step_losses = None
+                for i in range(mm.shape[1]):
+                    step_losses = mm[:, i]  # Sample.
 
-                # Shapiro-Wilk.
-                W, p_sw = shapiro(step_losses)
-                W_stats.append(W)
-                p_sw_values.append(p_sw)
+                    # Shapiro-Wilk.
+                    W, p_sw = shapiro(step_losses)
+                    W_stats.append(W)
+                    p_sw_values.append(p_sw)
 
-                # Kolmogorov-Smirnov.
-                # Need to fit first.
-                loc, scale = norm.fit(step_losses)
-                dist = norm(loc, scale)
-                D, p_ks = kstest(step_losses, dist.cdf, N=len(step_losses))
-                D_stats.append(D)
-                p_ks_values.append(p_ks)
+                    # Kolmogorov-Smirnov.
+                    # Need to fit first.
+                    loc, scale = norm.fit(step_losses)
+                    dist = norm(loc, scale)
+                    D, p_ks = kstest(step_losses, dist.cdf, N=len(step_losses))
+                    D_stats.append(D)
+                    p_ks_values.append(p_ks)
 
-                # K^2.
-                K2, p_k2 = normaltest(step_losses)
-                K2_stats.append(K2)
-                p_k2_values.append(p_k2)
+                    # K^2.
+                    K2, p_k2 = normaltest(step_losses)
+                    K2_stats.append(K2)
+                    p_k2_values.append(p_k2)
 
-            # QQ-plot on the last step losses.
-            probplot(step_losses, plot=plt)
-            plt.title('QQ plot for last step losses - epoch {}'.format(current_epoch))
-            plt.savefig('./{}/epoch{}_qq.png'.format(model_dir, current_epoch), dpi=150)
-            plt.gcf().clear()
+                # QQ-plot on the last step losses.
+                probplot(step_losses, plot=plt)
+                plt.title('QQ plot for last step losses - epoch {}'.format(current_epoch))
+                plt.savefig('./{}/{}_epoch{}_qq.png'.format(model_dir, mm_name, current_epoch), dpi=150)
+                plt.gcf().clear()
 
-            sns.regplot(np.arange(len(W_stats)), np.log(W_stats), color='green', label='Shapiro-Wilk test statistic (log)', scatter_kws={'s': 2})
-            sns.regplot(np.arange(len(p_sw_values)), p_sw_values, color='orange', label='p-value', scatter_kws={'s': 2})
-            plt.xlabel('Training step')
-            plt.ylabel('Value')
-            plt.legend()
-            plt.title('Shapiro-Wilk test statistic and p-value per training step - epoch {}'.format(current_epoch))
-            plt.savefig('./{}/epoch{}_shapiro.png'.format(model_dir, current_epoch), dpi=150)
-            plt.gcf().clear()
+                sns.regplot(np.arange(len(W_stats)), np.log(W_stats), color='green', label='Shapiro-Wilk test statistic (log)', scatter_kws={'s': 2})
+                sns.regplot(np.arange(len(p_sw_values)), p_sw_values, color='orange', label='p-value', scatter_kws={'s': 2})
+                plt.xlabel('Training step')
+                plt.ylabel('Value')
+                plt.legend()
+                plt.title('Shapiro-Wilk test statistic and p-value per training step - epoch {}'.format(current_epoch))
+                plt.savefig('./{}/{}_epoch{}_shapiro.png'.format(model_dir, mm_name, current_epoch), dpi=150)
+                plt.gcf().clear()
 
-            sns.regplot(np.arange(len(D_stats)), np.log(D_stats), color='green', label='Kolmogorov-Smirnov test statistic (log)', scatter_kws={'s': 2})
-            sns.regplot(np.arange(len(p_ks_values)), p_ks_values, color='orange', label='p-value', scatter_kws={'s': 2})
-            plt.xlabel('Training step')
-            plt.ylabel('Value')
-            plt.legend()
-            plt.title('Kolmogorov-Smirnov test statistic and p-value per training step - epoch {}'.format(current_epoch))
-            plt.savefig('./{}/epoch{}_ks.png'.format(model_dir, current_epoch), dpi=150)
-            plt.gcf().clear()
+                # sns.regplot(np.arange(len(D_stats)), np.log(D_stats), color='green', label='Kolmogorov-Smirnov test statistic (log)', scatter_kws={'s': 2})
+                # sns.regplot(np.arange(len(p_ks_values)), p_ks_values, color='orange', label='p-value', scatter_kws={'s': 2})
+                # plt.xlabel('Training step')
+                # plt.ylabel('Value')
+                # plt.legend()
+                # plt.title('Kolmogorov-Smirnov test statistic and p-value per training step - epoch {}'.format(current_epoch))
+                # plt.savefig('./{}/epoch{}_ks.png'.format(model_dir, current_epoch), dpi=150)
+                # plt.gcf().clear()
 
-            sns.regplot(np.arange(len(K2_stats)), np.log(K2_stats), color='green', label='K^2 test statistic (log)', scatter_kws={'s': 2})
-            sns.regplot(np.arange(len(p_k2_values)), p_k2_values, color='orange', label='p-value', scatter_kws={'s': 2})
-            plt.xlabel('Training step')
-            plt.ylabel('Value')
-            plt.legend()
-            plt.title("D'Agostino K^2 test statistic and p-value per training step - epoch {}".format(current_epoch))
-            plt.savefig('./{}/epoch{}_dagostino_k2.png'.format(model_dir, current_epoch), dpi=150)
-            plt.gcf().clear()
+                # sns.regplot(np.arange(len(K2_stats)), np.log(K2_stats), color='green', label='K^2 test statistic (log)', scatter_kws={'s': 2})
+                # sns.regplot(np.arange(len(p_k2_values)), p_k2_values, color='orange', label='p-value', scatter_kws={'s': 2})
+                # plt.xlabel('Training step')
+                # plt.ylabel('Value')
+                # plt.legend()
+                # plt.title("D'Agostino K^2 test statistic and p-value per training step - epoch {}".format(current_epoch))
+                # plt.savefig('./{}/epoch{}_dagostino_k2.png'.format(model_dir, current_epoch), dpi=150)
+                # plt.gcf().clear()
 
 
 def gaussian0b_relative_positions():
@@ -184,7 +173,7 @@ def gaussian0b_relative_positions():
     no poisoning.
     """
 
-    parent_dir = 'gaussian0b_relative_positions'
+    parent_dir = 'gaussian0b_relative_positions_in10'
     num_epochs = 10
 
     for exp_id, mu0, sigma0, mu1, sigma1 in DISTRIB_PARAMS:
@@ -201,7 +190,7 @@ def gaussian0b_relative_positions():
 
         dense_nn = dense.DenseNN(parent_dir=experiment_dir,
                                  name=exp_id,
-                                 input_dim=INPUT_DIM, h1_dim=64, h2_dim=32,
+                                 input_dim=INPUT_DIM, h1_dim=5, h2_dim=3,
                                  classes=[0, 1], batch_size=BATCH_SIZE,
                                  mmap_normalise=False)
         model_dir = dense_nn.model_dir
@@ -572,8 +561,8 @@ def gaussian4():
 
 
 def main():
-    # gaussian0a_loss_distrib()
-    gaussian0b_relative_positions()
+    gaussian0a_loss_distrib()
+    # gaussian0b_relative_positions()
 
 
 if __name__ == '__main__':

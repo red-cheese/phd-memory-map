@@ -35,6 +35,10 @@ class MemoryMap(keras.callbacks.Callback):
         # self.mmap[i, j] = loss on batch i after gradient update on batch j has been done.
         self.mmap = np.zeros(shape=(self.K, self.K))
 
+        # Only relevant for binary classification.
+        self.mmap0 = np.zeros(shape=(self.K, self.K))
+        self.mmap1 = np.zeros(shape=(self.K, self.K))
+
         self.cur_batch_id = -1  # Will start with the mini-batch 0.
         self.cur_epoch_id = epochs_done - 1
 
@@ -57,14 +61,26 @@ class MemoryMap(keras.callbacks.Callback):
             l = self.all_labels[batch_start:batch_end]
             loss = self.model.evaluate(b, l, verbose=0, batch_size=self.batch_size)
             self.mmap[i, self.cur_batch_id] = loss[0]
-            # print('LOSS after training step', batch, 'on batch', i, '=', loss)
+
+            # Only relevant for binary classification.
+            # l0 = l[np.argmax(l, axis=1) == 0]
+            # b0 = b[np.argmax(l, axis=1) == 0]
+            # l1 = l[np.argmax(l, axis=1) == 1]
+            # b1 = b[np.argmax(l, axis=1) == 1]
+            # loss0 = self.model.evaluate(b0, l0, verbose=0, batch_size=len(b0))
+            # loss1 = self.model.evaluate(b1, l1, verbose=0, batch_size=len(b1))
+            # self.mmap0[i, self.cur_batch_id] = loss0[0]
+            # self.mmap1[i, self.cur_batch_id] = loss1[0]
 
     def on_epoch_begin(self, epoch, logs=None):
         self.cur_epoch_id += 1
 
     def on_epoch_end(self, epoch, logs=None):
         mmap = self.mmap
+        mmap0 = self.mmap0
+        mmap1 = self.mmap1
 
+        # TODO(alex) Do for mmap0 and mmap1
         isnan = np.isnan(mmap)
         if isnan.all():
             mmap[:, :] = self._MAX_LOSS
@@ -73,6 +89,7 @@ class MemoryMap(keras.callbacks.Callback):
             mmap[isnan] = nanmax
             mmap = np.clip(mmap, nanmin, nanmax)
 
+        assert not self.norm
         if self.norm:
             # Normalise mmap so that its scale is consistent across epochs.
             # Note that the mmap is no more non-negative at this point.
@@ -89,9 +106,29 @@ class MemoryMap(keras.callbacks.Callback):
                     dpi=150)
         plt.gcf().clear()
 
+        # sns.heatmap(mmap0, xticklabels=self.K // 10, yticklabels=self.K // 10, cmap="YlGnBu")
+        # plt.title('Mini-batch losses: epoch {}'.format(self.cur_epoch_id + 1))
+        # plt.ylabel('Mini-batch')
+        # plt.xlabel('Training step')
+        # plt.savefig(os.path.join(self.mmap_dir,
+        #                          'm0_epoch{}.png'.format(self.cur_epoch_id + 1)),
+        #             dpi=150)
+        # plt.gcf().clear()
+        #
+        # sns.heatmap(mmap1, xticklabels=self.K // 10, yticklabels=self.K // 10, cmap="YlGnBu")
+        # plt.title('Mini-batch losses: epoch {}'.format(self.cur_epoch_id + 1))
+        # plt.ylabel('Mini-batch')
+        # plt.xlabel('Training step')
+        # plt.savefig(os.path.join(self.mmap_dir,
+        #                          'm1_epoch{}.png'.format(self.cur_epoch_id + 1)),
+        #             dpi=150)
+        # plt.gcf().clear()
+
         # Save the mmap in the model.
-        self.epoch_mmaps.append(np.copy(self.mmap))
+        self.epoch_mmaps.append((np.copy(self.mmap), np.copy(self.mmap0), np.copy(self.mmap1)))
 
         # Reset memory map for the next epoch.
         self.mmap = np.zeros(shape=(self.K, self.K))
+        self.mmap0 = np.zeros(shape=(self.K, self.K))
+        self.mmap1 = np.zeros(shape=(self.K, self.K))
         self.cur_batch_id = -1

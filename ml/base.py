@@ -2,13 +2,11 @@
 
 import os
 import pickle
+from constants import *
 from ml import mmap
 
 
 class BaseModel:
-
-    _DEFAULT_BATCH_SIZE = 64
-    _DEFAULT_NUM_EPOCHS = 5
 
     def __init__(self, *args, mmap_normalise=True, **kwargs):
         self.model, self.model_dir = self.build_model(*args, **kwargs)
@@ -18,8 +16,7 @@ class BaseModel:
     def build_model(self, *args, **kwargs):
         raise NotImplementedError
 
-    def fit(self, x, y, validation_data=None, batch_size=_DEFAULT_BATCH_SIZE,
-            num_epochs=_DEFAULT_NUM_EPOCHS,
+    def fit(self, x, y, validation_data=None, batch_size=BATCH_SIZE, num_epochs=NUM_EPOCHS,
             # If True, will load the existing model and continue training.
             continue_training=False):
         os.makedirs(self.model_dir, exist_ok=True)

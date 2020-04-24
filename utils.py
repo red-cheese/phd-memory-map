@@ -4,17 +4,12 @@ Various shared constants and utils to clean up the experiment files.
 
 
 import numpy as np
-
-from itertools import cycle
 import matplotlib.pyplot as plt
+from itertools import cycle
 from numpy.random import multivariate_normal
 
+from constants import *
 
-INPUT_DIM = 256
-BATCH_SIZE = 64
-
-NUM_TRAIN_BATCHES = 80
-NUM_TEST_BATCHES = 20
 
 CYCOL = cycle('bgrcmk')  # For colouring plots.
 
