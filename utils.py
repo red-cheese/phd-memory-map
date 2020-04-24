@@ -42,7 +42,7 @@ def _vstack(seq, shuffle=True):
     return x, y
 
 
-def basic_train_test(mu_0=None, sigma_0=None, mu_1=None, sigma_1=None, plot_dir=None):
+def basic_train_test(mu_0, sigma_0, mu_1, sigma_1, plot_dir=None):
     """
     Samples from two given Gaussians. No flipping labels.
     """
@@ -50,17 +50,9 @@ def basic_train_test(mu_0=None, sigma_0=None, mu_1=None, sigma_1=None, plot_dir=
     train_set_size = (NUM_TRAIN_BATCHES // 2) * BATCH_SIZE  # Per class.
     test_set_size = (NUM_TEST_BATCHES // 2) * BATCH_SIZE  # Per class.
 
-    if mu_0 is None:
-        mu_0 = np.full((INPUT_DIM,), 5., dtype=np.float64)
-    if sigma_0 is None:
-        sigma_0 = np.eye(INPUT_DIM, dtype=np.float64) * 0.1
     train_x_0, train_y_0 = _generate_data(mu_0, sigma_0, 0, train_set_size)
     test_x_0, test_y_0 = _generate_data(mu_0, sigma_0, 0, test_set_size)
 
-    if mu_1 is None:
-        mu_1 = np.full((INPUT_DIM,), 2., dtype=np.float64)
-    if sigma_1 is None:
-        sigma_1 = np.eye(INPUT_DIM, dtype=np.float64) * 1.
     train_x_1, train_y_1 = _generate_data(mu_1, sigma_1, 1, train_set_size)
     test_x_1, test_y_1 = _generate_data(mu_1, sigma_1, 1, test_set_size)
 
