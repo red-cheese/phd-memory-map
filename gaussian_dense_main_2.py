@@ -101,7 +101,8 @@ def gaussian5a_batch_corr():
         experiment_dir = '{}/{}'.format(parent_dir, exp_id)
         os.makedirs(experiment_dir, exist_ok=True)
         train_x, train_y, test_x, test_y, _ = utils.basic_train_test(mu0, sigma0, mu1, sigma1,
-                                                                     plot_dir=experiment_dir)
+                                                                     plot_dir=experiment_dir,
+                                                                     log_reg=True)
         _gaussian5_exp(experiment_dir, train_x, train_y, test_x, test_y)
 
 
@@ -129,7 +130,8 @@ def gaussian5b_batch_corr():
         os.makedirs(experiment_dir, exist_ok=True)
 
         train_x, train_y, test_x, test_y, _ = utils.basic_train_test(mu0, sigma0, mu1, sigma1,
-                                                                     plot_dir=experiment_dir)
+                                                                     plot_dir=experiment_dir,
+                                                                     log_reg=True)
 
         # [(flip probability, [(start of batch, end of batch - exclusive)])]
         flip_settings = [

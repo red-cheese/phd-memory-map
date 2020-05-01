@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import pickle as pkl
 from itertools import cycle
 from numpy.random import multivariate_normal
+from sklearn.linear_model import LogisticRegression
 
 from constants import *
 
@@ -43,7 +44,8 @@ def _vstack(seq, shuffle=True):
     return x, y
 
 
-def basic_train_test(mu_0, sigma_0, mu_1, sigma_1, plot_dir=None):
+def basic_train_test(mu_0, sigma_0, mu_1, sigma_1, plot_dir=None,
+                     log_reg=False):
     """
     Samples from two given Gaussians. No flipping labels.
     """
@@ -88,7 +90,7 @@ def basic_train_test(mu_0, sigma_0, mu_1, sigma_1, plot_dir=None):
         plt.gcf().clear()
 
         # Save the data for easier debugging.
-        with open('{}/data.pkl', 'wb') as f:
+        with open('{}/data.pkl'.format(plot_dir), 'wb') as f:
             pkl.dump({
                 'train_x': train_x,
                 'train_y': train_y,
@@ -96,6 +98,15 @@ def basic_train_test(mu_0, sigma_0, mu_1, sigma_1, plot_dir=None):
                 'test_y': test_y,
                 'train_batch_id': train_batch_id,
             }, f)
+
+        if log_reg:
+            train_y_labels = np.argmax(train_y, axis=1)
+            # Watch out for any warnings.
+            clf = LogisticRegression(random_state=0, verbose=1).fit(train_x, train_y_labels)
+            score = clf.score(train_x, train_y_labels)
+            with open('{}/log_reg.txt'.format(plot_dir), 'wt') as f:
+                f.write('Logistic Regression score: {}'.format(score))
+
 
     return train_x, train_y, test_x, test_y, train_batch_id
 
