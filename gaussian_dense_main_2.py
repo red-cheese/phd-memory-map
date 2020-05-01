@@ -91,7 +91,7 @@ def gaussian5a_batch_corr():
     No data is poisoned.
     """
 
-    parent_dir = 'gaussian5a_batch_corr'
+    parent_dir = 'gaussian5a_batch_corr_new'
 
     for exp_id, mu0, sigma0, mu1, sigma1 in DISTRIB_PARAMS:
         print()
@@ -118,7 +118,7 @@ def gaussian5b_batch_corr():
     Total training batches: 80.
     """
 
-    parent_dir = 'gaussian5b_batch_corr'
+    parent_dir = 'gaussian5b_batch_corr_new'
 
     for exp_id, mu0, sigma0, mu1, sigma1 in DISTRIB_PARAMS:
         print()
@@ -244,10 +244,8 @@ def gaussian6b_rank():
 
 
 def main():
-    # gaussian5a_batch_corr()
+    gaussian5a_batch_corr()
     # gaussian5b_batch_corr()
-    gaussian6a_rank()
-    gaussian6b_rank()
     pass
 
 

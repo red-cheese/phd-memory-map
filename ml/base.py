@@ -2,16 +2,25 @@
 
 import os
 import pickle
+from datetime import datetime
+from keras.callbacks import TensorBoard
+
 from constants import *
 from ml import mmap
 
 
 class BaseModel:
 
-    def __init__(self, *args, mmap_normalise=True, **kwargs):
+    def __init__(self, *args, mmap_normalise=True, tensorboard=True, **kwargs):
         self.model, self.model_dir = self.build_model(*args, **kwargs)
         self.mmap_normalise = mmap_normalise
         self.epoch_mmaps = []
+
+        self.tensorboard = tensorboard
+        if self.tensorboard:
+            self.tb_log_dir = '/Users/olex/tensorboard/{}/{}'.format(self.model_dir,
+                                                                     datetime.now().strftime("%Y%m%d-%H%M%S"))
+            os.makedirs(self.tb_log_dir, exist_ok=True)
 
     def build_model(self, *args, **kwargs):
         raise NotImplementedError
@@ -38,13 +47,22 @@ class BaseModel:
         # Continue training.
         print('Training model...')
         print('Training set shape:', x.shape)
+
         # Set up a new mmap callback.
         mmap_callback = mmap.MemoryMap(
             all_data=x, all_labels=y, model=self.model,
             batch_size=batch_size, model_dir=self.model_dir,
             norm=self.mmap_normalise, epochs_done=len(self.epoch_mmaps))
+        callbacks = [mmap_callback]
+
+        # Tensorboard callback.
+        if self.tensorboard:
+            tb_callback = TensorBoard(log_dir=self.tb_log_dir)
+            callbacks.append(tb_callback)
+
+        epochs_done = len(self.epoch_mmaps)
         self.model.fit(x=x, y=y, batch_size=batch_size, verbose=1,
-                       callbacks=[mmap_callback], epochs=num_epochs,
+                       callbacks=callbacks, initial_epoch=epochs_done, epochs=epochs_done + num_epochs,
                        validation_data=validation_data,
                        # shuffle=False for memory maps!
                        shuffle=False)

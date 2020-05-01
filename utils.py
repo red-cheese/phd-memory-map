@@ -5,6 +5,7 @@ Various shared constants and utils to clean up the experiment files.
 
 import numpy as np
 import matplotlib.pyplot as plt
+import pickle as pkl
 from itertools import cycle
 from numpy.random import multivariate_normal
 
@@ -85,6 +86,16 @@ def basic_train_test(mu_0, sigma_0, mu_1, sigma_1, plot_dir=None):
         plt.title('Data - first 2 components')
         plt.savefig('{}/data.png'.format(plot_dir), dpi=150)
         plt.gcf().clear()
+
+        # Save the data for easier debugging.
+        with open('{}/data.pkl', 'wb') as f:
+            pkl.dump({
+                'train_x': train_x,
+                'train_y': train_y,
+                'test_x': test_x,
+                'test_y': test_y,
+                'train_batch_id': train_batch_id,
+            }, f)
 
     return train_x, train_y, test_x, test_y, train_batch_id
 
