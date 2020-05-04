@@ -15,7 +15,55 @@ from ml import dense
 from gaussian_params_2_classes import DISTRIB_PARAMS
 
 
-def _compute_x_corr(mmap, fill_lower=False):
+def _plot_cond_and_eig(eig_by_epoch, cond_by_epoch, name, short_name, moder_dir):
+    epoch_ticks = [t for t in range(len(cond_by_epoch))]
+    epoch_labels = [l + 1 for l in range(len(cond_by_epoch))]
+
+    plt.title('{} - condition number by epoch'.format(name))
+    plt.xlabel('Epoch')
+    plt.ylabel('Condition number')
+    plt.xticks(ticks=epoch_ticks, labels=epoch_labels)
+    plt.plot(cond_by_epoch)
+    plt.savefig('./{}/cond_{}.png'.format(moder_dir, short_name), dpi=150)
+    plt.gcf().clear()
+
+    plt.title('{} - eigenvalues by epoch'.format(name))
+    plt.xlabel('Epoch')
+    plt.ylabel('Eigenvalues')
+    plt.boxplot(eig_by_epoch)
+    plt.savefig('./{}/eig_{}.png'.format(moder_dir, short_name), dpi=150)
+    plt.gcf().clear()
+
+
+def _plot_square_matrix(mx,
+                        name, short_name,
+                        cond,
+                        model_dir, current_epoch,
+                        xlabel=None, ylabel=None,
+                        xlabel_top=False):
+    assert len(mx.shape) == 2
+    assert mx.shape[0] == mx.shape[1]
+
+    tick_labels = [str(k) if k % 10 == 0 or k == mx.shape[0] - 1 else None for k in range(mx.shape[0])]
+    ax = sns.heatmap(mx, xticklabels=tick_labels, yticklabels=tick_labels)
+
+    if xlabel_top:
+        ax.xaxis.tick_top()
+        ax.xaxis.set_label_position('top')
+
+    if xlabel:
+        ax.set_xlabel(xlabel)
+    if ylabel:
+        ax.set_ylabel(ylabel)
+
+    plt.title('{} - epoch {} - cond {}'.format(name, current_epoch, cond))
+    plt.savefig('./{}/epoch{}_{}'.format(model_dir, current_epoch, short_name),
+                dpi=150)
+    plt.gcf().clear()
+
+
+def _compute_and_plot_x_corr(mmap, model_dir, current_epoch):
+    # First compute the matrix and plot it.
     corr_mx = np.zeros(shape=mmap.shape)
 
     # Compute the diagonal and upper triangle.
@@ -24,12 +72,44 @@ def _compute_x_corr(mmap, fill_lower=False):
             corr_mx[i, j] = np.corrcoef(mmap[i, :], mmap[j, :])[0, 1]
 
     # Fill in lower triangle.
-    if fill_lower:
-        for i in range(mmap.shape[0]):
-            for j in range(0, i):
-                corr_mx[i, j] = corr_mx[j, i]
+    for i in range(mmap.shape[0]):
+        for j in range(0, i):
+            corr_mx[i, j] = corr_mx[j, i]
 
-    return corr_mx
+    # Absolute numbers of eigenvalues and condition number.
+    eig = [np.absolute(v) for v in np.linalg.eig(corr_mx)[0]]
+    cond = np.linalg.cond(corr_mx)
+
+    # Plot matrix as a heatmap.
+    _plot_square_matrix(corr_mx,
+                        name='Batch cross-correlation matrix', short_name='batch_xcorr',
+                        cond=cond, model_dir=model_dir, current_epoch=current_epoch, xlabel_top=True)
+
+    return eig, cond
+
+
+def _compute_and_plot_auto_corr(mmap, model_dir, current_epoch):
+    auto_corr_mx = np.zeros(shape=mmap.shape)
+    auto_corr_mx[:, 0] = 1.
+
+    for t in range(1, mmap.shape[0]):
+        for i in range(mmap.shape[0]):
+            auto_corr_mx[i, t] = np.corrcoef(mmap[i, :-t], mmap[i, t:])[0][1]
+    auto_corr_mx[:, -1] = 1.
+    # After a few practice runs, it looks like some auto-correlation values might be nan.
+    # This is a hack to be able to compute eigenvalues later.
+    auto_corr_mx[np.isnan(auto_corr_mx)] = 2.
+
+    # Absolute numbers of eigenvalues and condition number.
+    eig = [np.absolute(v) for v in np.linalg.eig(auto_corr_mx)[0]]
+    cond = np.linalg.cond(auto_corr_mx)
+
+    # Plot matrix as a heatmap.
+    _plot_square_matrix(auto_corr_mx,
+                        name='Batch auto-correlation matrix', short_name='batch_autocorr',
+                        cond=cond, model_dir=model_dir, current_epoch=current_epoch, xlabel='Lag', ylabel='Batch')
+
+    return eig, cond
 
 
 def _gaussian5_exp(experiment_dir, train_x, train_y, test_x, test_y):
@@ -42,6 +122,11 @@ def _gaussian5_exp(experiment_dir, train_x, train_y, test_x, test_y):
                              mmap_normalise=False)
     model_dir = dense_nn.model_dir
     print('Model dir:', model_dir)
+
+    # Absolute eigenvalues and condition number by epoch.
+    mmap_cond, mmap_eig = [], []
+    batch_xcorr_cond, batch_xcorr_eig = [], []
+    batch_autocorr_cond, batch_autocond_eig = [], []
 
     for epoch in range(NUM_EPOCHS):
         current_epoch = len(dense_nn.epoch_mmaps) + 1
@@ -68,19 +153,24 @@ def _gaussian5_exp(experiment_dir, train_x, train_y, test_x, test_y):
                         dpi=150)
             plt.gcf().clear()
 
-        # 2. Compute and plot cross-correlation matrix.
-        corr_mx = _compute_x_corr(mmap, fill_lower=False)
-        mask = np.zeros(shape=mmap.shape, dtype=np.bool)
-        mask[np.tril_indices_from(mask, -1)] = True  # Include self-corr.
-        tick_labels = [str(k) if k % 10 == 0 or k == mmap.shape[0] - 1 else None
-                       for k in range(mmap.shape[0])]
-        ax = sns.heatmap(corr_mx, xticklabels=tick_labels, yticklabels=tick_labels, mask=mask)
-        ax.xaxis.tick_top()
-        ax.xaxis.set_label_position('top')
-        plt.title('Batch cross-correlation matrix - epoch {}'.format(current_epoch))
-        plt.savefig('./{}/epoch{}_batch_xcorr'.format(model_dir, current_epoch),
-                    dpi=150)
-        plt.gcf().clear()
+        # 2. Cross-correlation matrix.
+        xcorr_eig, xcorr_cond = _compute_and_plot_x_corr(mmap, model_dir, current_epoch)
+        batch_xcorr_eig.append(xcorr_eig)
+        batch_xcorr_cond.append(xcorr_cond)
+
+        # 3. Compute autocorrelation matrix.
+        autocorr_eig, autocorr_cond = _compute_and_plot_auto_corr(mmap, model_dir, current_epoch)
+        batch_autocond_eig.append(autocorr_eig)
+        batch_autocorr_cond.append(autocorr_cond)
+
+        # 4. Mmap eigenvalues and cond number.
+        mmap_eig.append([np.absolute(v) for v in np.linalg.eig(mmap)[0]])
+        mmap_cond.append(np.linalg.cond(mmap))
+
+    # Plot eigenvalues and condition numbers for all matrices.
+    _plot_cond_and_eig(batch_xcorr_eig, batch_xcorr_cond, 'Batch cross-correlation matrix', 'batch_xcorr', model_dir)
+    _plot_cond_and_eig(batch_autocond_eig, batch_autocorr_cond, 'Batch auto-correlation matrix', 'batch_autocorr', model_dir)
+    _plot_cond_and_eig(mmap_eig, mmap_cond, 'Mmap', 'mmap', model_dir)
 
 
 def gaussian5a_batch_corr():
@@ -179,7 +269,7 @@ def gaussian6a_rank():
             mmap, _, _ = dense_nn.epoch_mmaps[-1]
             assert mmap.shape[0] == NUM_TRAIN_BATCHES
 
-            corr_mx = _compute_x_corr(mmap, fill_lower=True)
+            corr_mx = _compute_and_plot_x_corr(mmap, fill_lower=True)
             r = matrix_rank(corr_mx, hermitian=True)
             ranks.append(r)
 
@@ -233,7 +323,7 @@ def gaussian6b_rank():
             mmap, _, _ = dense_nn.epoch_mmaps[-1]
             assert mmap.shape[0] == NUM_TRAIN_BATCHES
 
-            corr_mx = _compute_x_corr(mmap, fill_lower=True)
+            corr_mx = _compute_and_plot_x_corr(mmap, fill_lower=True)
             r = matrix_rank(corr_mx, hermitian=True)
             ranks.append(r)
 
@@ -247,7 +337,7 @@ def gaussian6b_rank():
 
 def main():
     gaussian5a_batch_corr()
-    # gaussian5b_batch_corr()
+    gaussian5b_batch_corr()
     pass
 
 
