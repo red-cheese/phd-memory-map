@@ -34,4 +34,11 @@ DISTRIB_PARAMS = [
         np.full((INPUT_DIM,), 3., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64),
         np.full((INPUT_DIM,), 3., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64) * 0.05
     ),
+
+    (
+        # Identical distributions - classifier should not learn anything.
+        'exp4',
+        np.full((INPUT_DIM,), 3., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64),
+        np.full((INPUT_DIM,), 3., dtype=np.float64), np.eye(INPUT_DIM, dtype=np.float64)
+    ),
 ]

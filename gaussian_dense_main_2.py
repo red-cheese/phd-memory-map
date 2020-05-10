@@ -8,6 +8,7 @@ import numpy as np
 import os
 import seaborn as sns
 from numpy.linalg import matrix_rank
+from sklearn.decomposition import PCA
 
 import utils
 from constants import *
@@ -335,9 +336,222 @@ def gaussian6b_rank():
         plt.gcf().clear()
 
 
+def gaussian7a_mmap_pca():
+    """
+    This also uses demeaned mmap with exactly 50/50 examples of each class in each batch.
+    """
+
+    parent_dir = 'gaussian7a_mmap_pca'
+
+    for exp_id, mu0, sigma0, mu1, sigma1 in DISTRIB_PARAMS:
+        print()
+        print('==============================')
+        print()
+        print('Experiment ID:', exp_id)
+        experiment_dir = '{}/{}'.format(parent_dir, exp_id)
+        os.makedirs(experiment_dir, exist_ok=True)
+
+        train_x, train_y, test_x, test_y, _ = utils.basic_train_test(mu0, sigma0, mu1, sigma1,
+                                                                     plot_dir=experiment_dir,
+                                                                     log_reg=True)
+
+        dense_nn = dense.DenseNN(parent_dir=experiment_dir,
+                                 name=exp_id,
+                                 input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
+                                 classes=(0, 1), batch_size=BATCH_SIZE,
+                                 mmap_normalise=False)
+        model_dir = dense_nn.model_dir
+        print('Model dir:', model_dir)
+
+        for epoch in range(NUM_EPOCHS):
+            current_epoch = len(dense_nn.epoch_mmaps) + 1
+
+            dense_nn.fit(train_x, train_y,
+                         validation_data=(test_x, test_y), batch_size=BATCH_SIZE, num_epochs=1, continue_training=True)
+
+            # Model is loaded during fit(). Start from scratch every time.
+            assert len(dense_nn.epoch_mmaps) == epoch + 1
+
+            mmap, _, _ = dense_nn.epoch_mmaps[-1]  # mmap mush already be demeaned here.
+            assert mmap.shape[0] == NUM_TRAIN_BATCHES
+
+            pca = PCA(n_components=3)
+            mmap_pca = pca.fit_transform(mmap)
+            explained_var = [round(val, 5) for val in pca.explained_variance_]
+            singular_values = [round(val, 5) for val in pca.singular_values_]
+
+            # Components 1 and 2.
+            plt.title('Mmap PCA - components 1 and 2 - epoch {}\n'
+                      'Explained variance: C1 {}, C2 {}\n'
+                      'Singular values: C1 {}, C2 {}'
+                      .format(current_epoch,
+                              explained_var[0], explained_var[1],
+                              singular_values[0], singular_values[1]))
+            plt.xlabel('Component 1')
+            plt.ylabel('Component 2')
+            plt.scatter(mmap_pca[:, 0], mmap_pca[:, 1], c='blue', marker='o', s=1)
+            plt.savefig('./{}/epoch{}_mmap_pca_1-2.png'.format(model_dir, current_epoch), dpi=150)
+            plt.gcf().clear()
+
+            # Components 1 and 3.
+            plt.title('Mmap PCA - components 1 and 3 - epoch {}\n'
+                      'Explained variance: C1 {}, C3 {}\n'
+                      'Singular values: C1 {}, C3 {}'
+                      .format(current_epoch,
+                              explained_var[0], explained_var[2],
+                              singular_values[0], singular_values[2]))
+            plt.xlabel('Component 1')
+            plt.ylabel('Component 3')
+            plt.scatter(mmap_pca[:, 0], mmap_pca[:, 2], c='blue', marker='o', s=1)
+            plt.savefig('./{}/epoch{}_mmap_pca_1-3.png'.format(model_dir, current_epoch), dpi=150)
+            plt.gcf().clear()
+
+            # Components 2 and 3.
+            plt.title('Mmap PCA - components 2 and 3 - epoch {}\n'
+                      'Explained variance: C2 {}, C3 {}\n'
+                      'Singular values: C2 {}, C3 {}'
+                      .format(current_epoch,
+                              explained_var[1], explained_var[2],
+                              singular_values[1], singular_values[2]))
+            plt.xlabel('Component 2')
+            plt.ylabel('Component 3')
+            plt.scatter(mmap_pca[:, 1], mmap_pca[:, 2], c='blue', marker='o', s=1)
+            plt.savefig('./{}/epoch{}_mmap_pca_2-3.png'.format(model_dir, current_epoch), dpi=150)
+            plt.gcf().clear()
+
+            # TODO Also plot losses for batches
+
+
+def gaussian7b_mmap_pca():
+    parent_dir = 'gaussian7b_mmap_pca'
+
+    for exp_id, mu0, sigma0, mu1, sigma1 in DISTRIB_PARAMS:
+        print()
+        print('==============================')
+        print()
+        print('Experiment ID:', exp_id)
+        experiment_dir = '{}/{}'.format(parent_dir, exp_id)
+        os.makedirs(experiment_dir, exist_ok=True)
+
+        train_x, train_y, test_x, test_y, _ = utils.basic_train_test(mu0, sigma0, mu1, sigma1,
+                                                                     plot_dir=experiment_dir,
+                                                                     log_reg=True)
+        # [(flip probability, [(start of batch, end of batch - exclusive)])]
+        flip_settings = [
+            (0.1, [(10 * BATCH_SIZE, 15 * BATCH_SIZE), (66 * BATCH_SIZE, 71 * BATCH_SIZE)]),
+            (0.25, [(30 * BATCH_SIZE, 35 * BATCH_SIZE), (46 * BATCH_SIZE, 51 * BATCH_SIZE)]),
+            (0.5, [(39 * BATCH_SIZE, 42 * BATCH_SIZE)]),
+        ]
+        for flip_proba, poisoned_batch_settings in flip_settings:
+            for start_idx, end_idx in poisoned_batch_settings:
+                train_y = utils.flip_labels(train_y, start_idx, end_idx, flip_proba, copy=False)
+        poisoned_batch_mask_01 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+        poisoned_batch_mask_025 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+        poisoned_batch_mask_05 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+        poisoned_batch_mask_01[10:15] = True
+        poisoned_batch_mask_01[66:71] = True
+        poisoned_batch_mask_025[30:35] = True
+        poisoned_batch_mask_025[46:51] = True
+        poisoned_batch_mask_05[39:42] = True
+        poisoned_batch_mask = poisoned_batch_mask_01 + poisoned_batch_mask_025 + poisoned_batch_mask_05
+        assert sum(poisoned_batch_mask) == 23  # 23 poisoned batches in total.
+
+        dense_nn = dense.DenseNN(parent_dir=experiment_dir,
+                                 name=exp_id,
+                                 input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
+                                 classes=(0, 1), batch_size=BATCH_SIZE,
+                                 mmap_normalise=False)
+        model_dir = dense_nn.model_dir
+        print('Model dir:', model_dir)
+
+        for epoch in range(NUM_EPOCHS):
+            current_epoch = len(dense_nn.epoch_mmaps) + 1
+
+            dense_nn.fit(train_x, train_y,
+                         validation_data=(test_x, test_y), batch_size=BATCH_SIZE, num_epochs=1, continue_training=True)
+
+            # Model is loaded during fit(). Start from scratch every time.
+            assert len(dense_nn.epoch_mmaps) == epoch + 1
+
+            mmap, _, _ = dense_nn.epoch_mmaps[-1]  # mmap mush already be demeaned here.
+            assert mmap.shape[0] == NUM_TRAIN_BATCHES
+
+            pca = PCA(n_components=3)
+            mmap_pca = pca.fit_transform(mmap)
+            explained_var = [round(val, 5) for val in pca.explained_variance_]
+            singular_values = [round(val, 5) for val in pca.singular_values_]
+
+            # Components 1 and 2.
+            plt.title('Mmap PCA - components 1 and 2 - epoch {}\n'
+                      'Explained variance: C1 {}, C2 {}\n'
+                      'Singular values: C1 {}, C2 {}'
+                      .format(current_epoch,
+                              explained_var[0], explained_var[1],
+                              singular_values[0], singular_values[1]))
+            plt.xlabel('Component 1')
+            plt.ylabel('Component 2')
+            plt.scatter(mmap_pca[~poisoned_batch_mask, 0], mmap_pca[~poisoned_batch_mask, 1],
+                        c='blue', marker='o', s=1, label='No poisoning')
+            plt.scatter(mmap_pca[poisoned_batch_mask_01, 0], mmap_pca[poisoned_batch_mask_01, 1],
+                        c='yellow', marker='x', s=1, label='FP = 0.1')
+            plt.scatter(mmap_pca[poisoned_batch_mask_025, 0], mmap_pca[poisoned_batch_mask_025, 1],
+                        c='magenta', marker='x', s=1, label='FP = 0.25')
+            plt.scatter(mmap_pca[poisoned_batch_mask_05, 0], mmap_pca[poisoned_batch_mask_05, 1],
+                        c='red', marker='x', s=1, label='FP = 0.5')
+            plt.legend()
+            plt.savefig('./{}/epoch{}_mmap_pca_1-2.png'.format(model_dir, current_epoch), dpi=150)
+            plt.gcf().clear()
+
+            # Components 1 and 3.
+            plt.title('Mmap PCA - components 1 and 3 - epoch {}\n'
+                      'Explained variance: C1 {}, C3 {}\n'
+                      'Singular values: C1 {}, C3 {}'
+                      .format(current_epoch,
+                              explained_var[0], explained_var[2],
+                              singular_values[0], singular_values[2]))
+            plt.xlabel('Component 1')
+            plt.ylabel('Component 3')
+            plt.scatter(mmap_pca[~poisoned_batch_mask, 0], mmap_pca[~poisoned_batch_mask, 2],
+                        c='blue', marker='o', s=1, label='No poisoning')
+            plt.scatter(mmap_pca[poisoned_batch_mask_01, 0], mmap_pca[poisoned_batch_mask_01, 2],
+                        c='yellow', marker='x', s=1, label='FP = 0.1')
+            plt.scatter(mmap_pca[poisoned_batch_mask_025, 0], mmap_pca[poisoned_batch_mask_025, 2],
+                        c='magenta', marker='x', s=1, label='FP = 0.25')
+            plt.scatter(mmap_pca[poisoned_batch_mask_05, 0], mmap_pca[poisoned_batch_mask_05, 2],
+                        c='red', marker='x', s=1, label='FP = 0.5')
+            plt.savefig('./{}/epoch{}_mmap_pca_1-3.png'.format(model_dir, current_epoch), dpi=150)
+            plt.legend()
+            plt.gcf().clear()
+
+            # Components 2 and 3.
+            plt.title('Mmap PCA - components 2 and 3 - epoch {}\n'
+                      'Explained variance: C2 {}, C3 {}\n'
+                      'Singular values: C2 {}, C3 {}'
+                      .format(current_epoch,
+                              explained_var[1], explained_var[2],
+                              singular_values[1], singular_values[2]))
+            plt.xlabel('Component 2')
+            plt.ylabel('Component 3')
+            plt.scatter(mmap_pca[~poisoned_batch_mask, 1], mmap_pca[~poisoned_batch_mask, 2],
+                        c='blue', marker='o', s=1, label='No poisoning')
+            plt.scatter(mmap_pca[poisoned_batch_mask_01, 1], mmap_pca[poisoned_batch_mask_01, 2],
+                        c='yellow', marker='x', s=1, label='FP = 0.1')
+            plt.scatter(mmap_pca[poisoned_batch_mask_025, 1], mmap_pca[poisoned_batch_mask_025, 2],
+                        c='magenta', marker='x', s=1, label='FP = 0.25')
+            plt.scatter(mmap_pca[poisoned_batch_mask_05, 1], mmap_pca[poisoned_batch_mask_05, 2],
+                        c='red', marker='x', s=1, label='FP = 0.5')
+            plt.savefig('./{}/epoch{}_mmap_pca_2-3.png'.format(model_dir, current_epoch), dpi=150)
+            plt.legend()
+            plt.gcf().clear()
+
+            # TODO Also plot losses for batches
+
+
 def main():
-    gaussian5a_batch_corr()
-    gaussian5b_batch_corr()
+    # gaussian5a_batch_corr()
+    # gaussian5b_batch_corr()
+    # gaussian7a_mmap_pca()
+    gaussian7b_mmap_pca()
     pass
 
 

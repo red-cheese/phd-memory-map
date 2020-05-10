@@ -98,6 +98,10 @@ class MemoryMap(keras.callbacks.Callback):
         #     print('Epoch:', epoch, '; mean:', mmap_mean, '; std:', mmap_std)
         #     mmap = (mmap - mmap_mean) / mmap_std
 
+        # Demean the mmap cross sectionally (average across all batches for each training step).
+        xbatch_mean = np.mean(mmap, axis=0)
+        mmap -= xbatch_mean
+
         tick_labels = [str(k) if k % 10 == 0 or k == self.K - 1 else None for k in range(self.K)]
         ax = sns.heatmap(mmap, xticklabels=tick_labels, yticklabels=tick_labels, cmap="YlGnBu")
         ax.xaxis.tick_top()
