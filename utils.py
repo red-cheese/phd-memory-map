@@ -45,7 +45,7 @@ def _vstack(seq, shuffle=True):
 
 
 def basic_train_test(mu_0, sigma_0, mu_1, sigma_1, plot_dir=None,
-                     log_reg=False):
+                     log_reg=False, enforce_50_50=True):
     """
     Samples from two given Gaussians. No flipping labels.
     """
@@ -59,9 +59,23 @@ def basic_train_test(mu_0, sigma_0, mu_1, sigma_1, plot_dir=None,
     train_x_1, train_y_1 = _generate_data(mu_1, sigma_1, 1, train_set_size)
     test_x_1, test_y_1 = _generate_data(mu_1, sigma_1, 1, test_set_size)
 
-    train_x, train_y = _vstack([(train_x_0, train_y_0),
-                                (train_x_1, train_y_1)],
-                               shuffle=True)
+    if not enforce_50_50:
+        train_x, train_y = _vstack([(train_x_0, train_y_0),
+                                    (train_x_1, train_y_1)],
+                                   shuffle=True)
+    else:
+        print('Arranging data to enforce 50-50 split in each training batch')
+        batches = []
+        for i in range(NUM_TRAIN_BATCHES):
+            start_idx = i * (BATCH_SIZE // 2)
+            end_idx = (i + 1) * (BATCH_SIZE // 2)
+            # It's a tuple.
+            batch = _vstack([(train_x_0[start_idx:end_idx], train_y_0[start_idx:end_idx]),
+                             (train_x_1[start_idx:end_idx], train_y_1[start_idx:end_idx])],
+                            shuffle=True)
+            batches.append(batch)
+        train_x, train_y = _vstack(batches, shuffle=False)
+
     test_x, test_y = _vstack([(test_x_0, test_y_0),
                               (test_x_1, test_y_1)],
                              shuffle=True)

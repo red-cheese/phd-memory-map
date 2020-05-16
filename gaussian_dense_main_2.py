@@ -336,6 +336,10 @@ def gaussian6b_rank():
         plt.gcf().clear()
 
 
+def _cluster_analysis():
+    pass
+
+
 def gaussian7a_mmap_pca():
     """
     This also uses demeaned mmap with exactly 50/50 examples of each class in each batch.
@@ -418,8 +422,6 @@ def gaussian7a_mmap_pca():
             plt.scatter(mmap_pca[:, 1], mmap_pca[:, 2], c='blue', marker='o', s=1)
             plt.savefig('./{}/epoch{}_mmap_pca_2-3.png'.format(model_dir, current_epoch), dpi=150)
             plt.gcf().clear()
-
-            # TODO Also plot losses for batches
 
 
 def gaussian7b_mmap_pca():
@@ -544,13 +546,11 @@ def gaussian7b_mmap_pca():
             plt.legend()
             plt.gcf().clear()
 
-            # TODO Also plot losses for batches
-
 
 def main():
     # gaussian5a_batch_corr()
     # gaussian5b_batch_corr()
-    # gaussian7a_mmap_pca()
+    gaussian7a_mmap_pca()
     gaussian7b_mmap_pca()
     pass
 
