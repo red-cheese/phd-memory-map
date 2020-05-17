@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import seaborn as sns
-from numpy.linalg import matrix_rank
+from numpy.linalg import matrix_rank, norm
+from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 
 import utils
@@ -336,8 +337,99 @@ def gaussian6b_rank():
         plt.gcf().clear()
 
 
-def _cluster_analysis():
-    pass
+def _mean_dist(points):
+    s = 0.
+    cnt = 1
+    for i, p1 in enumerate(points):
+        for p2 in points[(i + 1):]:
+            s += norm(p2 - p1)
+            cnt += 1
+    return s / cnt
+
+
+def _cluster_analysis(mmap_pca_by_epoch, cluster_names, cluster_masks, cluster_colours, model_dir,
+                      pred_cluster_masks_by_epoch):
+    assert len(mmap_pca_by_epoch) == NUM_EPOCHS
+    assert mmap_pca_by_epoch[0].shape[0] == NUM_TRAIN_BATCHES
+    assert mmap_pca_by_epoch[0].shape[1] == 3
+    assert len(cluster_names) == len(cluster_masks) == len(cluster_colours)
+
+    true_centroids_by_epoch = []  # Centroids of true (known) clusters.
+    pred_centroids_by_epoch = []  # Centroids of predicted clusters.
+
+    true_mean_dist_by_epoch = []  # Mean distance between true centroids.
+    pred_mean_dist_by_epoch = []
+
+    true_num_points_by_epoch = []
+    pred_num_points_by_epoch = []  # Number of points in each predicted cluster.
+
+    for epoch_idx, mmap_pca in enumerate(mmap_pca_by_epoch):
+        true_centroids = []
+        true_num_points = []
+        pred_centroids = []
+        pred_num_points = []
+
+        for i, (c_mask, c_pred_mask) in enumerate(zip(cluster_masks, pred_cluster_masks_by_epoch[epoch_idx])):
+            c_mmap_pca = mmap_pca[c_mask, :]
+            pred_mmap_pca = mmap_pca[c_pred_mask, :]
+
+            true_centroids.append(np.mean(c_mmap_pca, axis=0))
+            pred_centroids.append(np.mean(pred_mmap_pca, axis=0))
+
+            true_num_points.append(c_mmap_pca.shape[0])
+            pred_num_points.append(pred_mmap_pca.shape[0])
+
+        true_centroids_by_epoch.append(true_centroids)
+        pred_centroids_by_epoch.append(pred_centroids)
+        true_num_points_by_epoch.append(true_num_points)
+        pred_num_points_by_epoch.append(pred_num_points)
+        true_mean_dist_by_epoch.append(_mean_dist(true_centroids))
+        pred_mean_dist_by_epoch.append(_mean_dist(pred_centroids))
+
+    # Plot mean distance by epoch.
+    plt.title('Mean distance between centroids by epoch')
+    plt.xlabel('Epoch')
+    plt.ylabel('Value')
+    plt.plot(pred_mean_dist_by_epoch, color='blue', label='Predicted clusters')
+    plt.plot(true_mean_dist_by_epoch, color='green', label='True clusters')
+    plt.legend(loc='upper left')
+    plt.savefig('./{}/cluster_mean_dist.png'.format(model_dir), dpi=150)
+    plt.gcf().clear()
+
+    # Plot num points by epoch for each cluster.
+    plt.title('Number of points in each cluster by epoch')
+    plt.xlabel('Epoch')
+    plt.ylabel('Number of points')
+    for i, (colour, name) in enumerate(zip(cluster_colours, cluster_names)):
+        true_num_points = [x[i] for x in true_num_points_by_epoch]
+        pred_num_points = [x[i] for x in pred_num_points_by_epoch]
+        plt.plot(true_num_points, color=colour, label='True: {}'.format(name))
+        plt.plot(pred_num_points, color=colour, label='Predicted: {}'.format(name), linestyle='dashed')
+    plt.legend(loc='upper left')
+    plt.savefig('./{}/cluster_num_points.png'.format(model_dir), dpi=150)
+    plt.gcf().clear()
+
+
+def _plot_mmap_pca(mmap_pca, epoch,
+                   cluster_masks, cluster_names, cluster_colours, cluster_explained_var, cluster_singular_values,
+                   comp_x, comp_y,
+                   model_dir,
+                   is_true=True):
+    plt.title('Mmap PCA - components {} and {} - epoch {}\n'
+              'Explained variance: C{} {}, C{} {}\n'
+              'Singular values: C{} {}, C{} {}'
+              .format(comp_x + 1, comp_y + 1, epoch,
+                      comp_x + 1, cluster_explained_var[comp_x], comp_y + 1, cluster_singular_values[comp_y],
+                      comp_x + 1, cluster_singular_values[comp_x], comp_y + 1, cluster_singular_values[comp_y]))
+    plt.xlabel('Component {}'.format(comp_x + 1))
+    plt.ylabel('Component {}'.format(comp_y + 1))
+    for i, (c_mask, c_name, c_colour) in enumerate(zip(cluster_masks, cluster_names, cluster_colours)):
+        plt.scatter(mmap_pca[c_mask, comp_x], mmap_pca[c_mask, comp_y],
+                    c=c_colour, marker='o', s=1, label=c_name)
+    plt.legend()
+    plt.savefig('./{}/epoch{}_{}_mmap_pca_{}-{}.png'.format(model_dir, epoch, 'true' if is_true else 'pred',
+                                                            comp_x + 1, comp_y + 1), dpi=150)
+    plt.gcf().clear()
 
 
 def gaussian7a_mmap_pca():
@@ -458,6 +550,15 @@ def gaussian7b_mmap_pca():
         poisoned_batch_mask = poisoned_batch_mask_01 + poisoned_batch_mask_025 + poisoned_batch_mask_05
         assert sum(poisoned_batch_mask) == 23  # 23 poisoned batches in total.
 
+        cluster_names = ('No poisoning', 'FP = 0.1', 'FP = 0.25', 'FP = 0.5')
+        cluster_colours = ('blue', 'yellow', 'magenta', 'red')
+        true_cluster_masks = (~poisoned_batch_mask,
+                              poisoned_batch_mask_01,
+                              poisoned_batch_mask_025,
+                              poisoned_batch_mask_05)
+        pred_cluster_masks_by_epoch = []
+        mmap_pca_by_epoch = []
+
         dense_nn = dense.DenseNN(parent_dir=experiment_dir,
                                  name=exp_id,
                                  input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
@@ -480,77 +581,41 @@ def gaussian7b_mmap_pca():
 
             pca = PCA(n_components=3)
             mmap_pca = pca.fit_transform(mmap)
+            mmap_pca_by_epoch.append(mmap_pca)
             explained_var = [round(val, 5) for val in pca.explained_variance_]
             singular_values = [round(val, 5) for val in pca.singular_values_]
 
+            # Predict clusters for mmap pca.
+            kmeans = KMeans(n_clusters=4, random_state=0).fit(mmap_pca)
+            pred_cluster_masks = [kmeans.labels_ == i for i in range(4)]
+            pred_cluster_masks_by_epoch.append(pred_cluster_masks)
+
             # Components 1 and 2.
-            plt.title('Mmap PCA - components 1 and 2 - epoch {}\n'
-                      'Explained variance: C1 {}, C2 {}\n'
-                      'Singular values: C1 {}, C2 {}'
-                      .format(current_epoch,
-                              explained_var[0], explained_var[1],
-                              singular_values[0], singular_values[1]))
-            plt.xlabel('Component 1')
-            plt.ylabel('Component 2')
-            plt.scatter(mmap_pca[~poisoned_batch_mask, 0], mmap_pca[~poisoned_batch_mask, 1],
-                        c='blue', marker='o', s=1, label='No poisoning')
-            plt.scatter(mmap_pca[poisoned_batch_mask_01, 0], mmap_pca[poisoned_batch_mask_01, 1],
-                        c='yellow', marker='x', s=1, label='FP = 0.1')
-            plt.scatter(mmap_pca[poisoned_batch_mask_025, 0], mmap_pca[poisoned_batch_mask_025, 1],
-                        c='magenta', marker='x', s=1, label='FP = 0.25')
-            plt.scatter(mmap_pca[poisoned_batch_mask_05, 0], mmap_pca[poisoned_batch_mask_05, 1],
-                        c='red', marker='x', s=1, label='FP = 0.5')
-            plt.legend()
-            plt.savefig('./{}/epoch{}_mmap_pca_1-2.png'.format(model_dir, current_epoch), dpi=150)
-            plt.gcf().clear()
+            _plot_mmap_pca(mmap_pca, current_epoch, true_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 0, 1, model_dir, is_true=True)
+            _plot_mmap_pca(mmap_pca, current_epoch, pred_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 0, 1, model_dir, is_true=False)
 
             # Components 1 and 3.
-            plt.title('Mmap PCA - components 1 and 3 - epoch {}\n'
-                      'Explained variance: C1 {}, C3 {}\n'
-                      'Singular values: C1 {}, C3 {}'
-                      .format(current_epoch,
-                              explained_var[0], explained_var[2],
-                              singular_values[0], singular_values[2]))
-            plt.xlabel('Component 1')
-            plt.ylabel('Component 3')
-            plt.scatter(mmap_pca[~poisoned_batch_mask, 0], mmap_pca[~poisoned_batch_mask, 2],
-                        c='blue', marker='o', s=1, label='No poisoning')
-            plt.scatter(mmap_pca[poisoned_batch_mask_01, 0], mmap_pca[poisoned_batch_mask_01, 2],
-                        c='yellow', marker='x', s=1, label='FP = 0.1')
-            plt.scatter(mmap_pca[poisoned_batch_mask_025, 0], mmap_pca[poisoned_batch_mask_025, 2],
-                        c='magenta', marker='x', s=1, label='FP = 0.25')
-            plt.scatter(mmap_pca[poisoned_batch_mask_05, 0], mmap_pca[poisoned_batch_mask_05, 2],
-                        c='red', marker='x', s=1, label='FP = 0.5')
-            plt.savefig('./{}/epoch{}_mmap_pca_1-3.png'.format(model_dir, current_epoch), dpi=150)
-            plt.legend()
-            plt.gcf().clear()
+            _plot_mmap_pca(mmap_pca, current_epoch, true_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 0, 2, model_dir, is_true=True)
+            _plot_mmap_pca(mmap_pca, current_epoch, pred_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 0, 2, model_dir, is_true=False)
 
             # Components 2 and 3.
-            plt.title('Mmap PCA - components 2 and 3 - epoch {}\n'
-                      'Explained variance: C2 {}, C3 {}\n'
-                      'Singular values: C2 {}, C3 {}'
-                      .format(current_epoch,
-                              explained_var[1], explained_var[2],
-                              singular_values[1], singular_values[2]))
-            plt.xlabel('Component 2')
-            plt.ylabel('Component 3')
-            plt.scatter(mmap_pca[~poisoned_batch_mask, 1], mmap_pca[~poisoned_batch_mask, 2],
-                        c='blue', marker='o', s=1, label='No poisoning')
-            plt.scatter(mmap_pca[poisoned_batch_mask_01, 1], mmap_pca[poisoned_batch_mask_01, 2],
-                        c='yellow', marker='x', s=1, label='FP = 0.1')
-            plt.scatter(mmap_pca[poisoned_batch_mask_025, 1], mmap_pca[poisoned_batch_mask_025, 2],
-                        c='magenta', marker='x', s=1, label='FP = 0.25')
-            plt.scatter(mmap_pca[poisoned_batch_mask_05, 1], mmap_pca[poisoned_batch_mask_05, 2],
-                        c='red', marker='x', s=1, label='FP = 0.5')
-            plt.savefig('./{}/epoch{}_mmap_pca_2-3.png'.format(model_dir, current_epoch), dpi=150)
-            plt.legend()
-            plt.gcf().clear()
+            _plot_mmap_pca(mmap_pca, current_epoch, true_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 1, 2, model_dir, is_true=True)
+            _plot_mmap_pca(mmap_pca, current_epoch, pred_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 1, 2, model_dir, is_true=False)
+
+        _cluster_analysis(mmap_pca_by_epoch, cluster_names, true_cluster_masks, cluster_colours, model_dir,
+                          pred_cluster_masks_by_epoch)
 
 
 def main():
     # gaussian5a_batch_corr()
     # gaussian5b_batch_corr()
-    gaussian7a_mmap_pca()
+    # gaussian7a_mmap_pca()
     gaussian7b_mmap_pca()
     pass
 
