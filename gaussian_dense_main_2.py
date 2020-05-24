@@ -10,6 +10,7 @@ import seaborn as sns
 from numpy.linalg import matrix_rank, norm
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
+from sklearn.metrics import adjusted_rand_score, silhouette_score
 
 import utils
 from constants import *
@@ -410,6 +411,36 @@ def _cluster_analysis(mmap_pca_by_epoch, cluster_names, cluster_masks, cluster_c
     plt.gcf().clear()
 
 
+def _cluster_analysis_2(mmap_pca_by_epoch,
+                        pred_cluster_labels_by_epoch, cluster_names, cluster_colours, model_dir):
+    assert len(cluster_names) == len(cluster_colours) == 2
+
+    # Silhouette score epoch to epoch.
+    silhouette_scores = []
+    for epoch_idx, labels in enumerate(pred_cluster_labels_by_epoch):
+        s_score = silhouette_score(mmap_pca_by_epoch[epoch_idx], labels)
+        silhouette_scores.append(s_score)
+    plt.title('Silhouette scores (2 predicted clusters) by epoch')
+    plt.xlabel('Epoch')
+    plt.ylabel('Score')
+    plt.plot(list(range(1, NUM_EPOCHS + 1)), silhouette_scores, color='blue')
+    plt.savefig('./{}/silhouette_2_clusters.png'.format(model_dir), dpi=150)
+    plt.gcf().clear()
+
+    # Adjusted Rand Index - comparing labels from epochs i and i + 1.
+    prev_labels = pred_cluster_labels_by_epoch[0]
+    ari = []
+    for epoch_idx in range(1, len(pred_cluster_labels_by_epoch)):
+        labels = pred_cluster_labels_by_epoch[epoch_idx]
+        ari.append(adjusted_rand_score(prev_labels, labels))
+    plt.title('Adjusted Rand Index - comparing labels from epochs i and i + 1')
+    plt.xlabel('Epoch')
+    plt.ylabel('ARI')
+    plt.plot(list(range(2, NUM_EPOCHS + 1)), ari, color='blue')
+    plt.savefig('./{}/ari_2_clusters.png'.format(model_dir), dpi=150)
+    plt.gcf().clear()
+
+
 def _plot_mmap_pca(mmap_pca, epoch,
                    cluster_masks, cluster_names, cluster_colours, cluster_explained_var, cluster_singular_values,
                    comp_x, comp_y,
@@ -612,11 +643,172 @@ def gaussian7b_mmap_pca():
                           pred_cluster_masks_by_epoch)
 
 
+def gaussian8a_mmap_pca_2_clusters():
+    parent_dir = 'gaussian8a_mmap_pca_2_clusters'
+
+    for exp_id, mu0, sigma0, mu1, sigma1 in DISTRIB_PARAMS:
+        print()
+        print('==============================')
+        print()
+        print('Experiment ID:', exp_id)
+        experiment_dir = '{}/{}'.format(parent_dir, exp_id)
+        os.makedirs(experiment_dir, exist_ok=True)
+
+        train_x, train_y, test_x, test_y, _ = utils.basic_train_test(mu0, sigma0, mu1, sigma1,
+                                                                     plot_dir=experiment_dir,
+                                                                     log_reg=True)
+
+        dense_nn = dense.DenseNN(parent_dir=experiment_dir,
+                                 name=exp_id,
+                                 input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
+                                 classes=(0, 1), batch_size=BATCH_SIZE,
+                                 mmap_normalise=False)
+        model_dir = dense_nn.model_dir
+        print('Model dir:', model_dir)
+
+        pred_cluster_labels_by_epoch = []  # Just for 2 clusters.
+        cluster_names = ('No poisoning', 'Poisoned')  # Predicted - because in reality there is no poisoning.
+        cluster_colours = ('blue', 'red')
+        mmap_pca_by_epoch = []
+
+        for epoch in range(NUM_EPOCHS):
+            current_epoch = len(dense_nn.epoch_mmaps) + 1
+
+            dense_nn.fit(train_x, train_y,
+                         validation_data=(test_x, test_y), batch_size=BATCH_SIZE, num_epochs=1, continue_training=True)
+
+            # Model is loaded during fit(). Start from scratch every time.
+            assert len(dense_nn.epoch_mmaps) == epoch + 1
+
+            mmap, _, _ = dense_nn.epoch_mmaps[-1]  # mmap mush already be demeaned here.
+            assert mmap.shape[0] == NUM_TRAIN_BATCHES
+
+            pca = PCA(n_components=3)
+            mmap_pca = pca.fit_transform(mmap)
+            mmap_pca_by_epoch.append(mmap_pca)
+            explained_var = [round(val, 5) for val in pca.explained_variance_]
+            singular_values = [round(val, 5) for val in pca.singular_values_]
+
+            # Try to cluster into 2 clusters.
+            kmeans = KMeans(n_clusters=2, random_state=0).fit(mmap_pca)
+            pred_cluster_masks = [kmeans.labels_ == i for i in range(2)]
+            pred_cluster_labels_by_epoch.append(kmeans.labels_)
+
+            # Components 1 and 2.
+            _plot_mmap_pca(mmap_pca, current_epoch, pred_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 0, 1, model_dir, is_true=False)
+
+            # Components 1 and 3.
+            _plot_mmap_pca(mmap_pca, current_epoch, pred_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 0, 2, model_dir, is_true=False)
+
+            # Components 2 and 3.
+            _plot_mmap_pca(mmap_pca, current_epoch, pred_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 1, 2, model_dir, is_true=False)
+
+        _cluster_analysis_2(mmap_pca_by_epoch, pred_cluster_labels_by_epoch, cluster_names, cluster_colours, model_dir)
+
+
+def gaussian8b_mmap_pca_2_clusters():
+    parent_dir = 'gaussian8b_mmap_pca_2_clusters'
+
+    for exp_id, mu0, sigma0, mu1, sigma1 in DISTRIB_PARAMS:
+        print()
+        print('==============================')
+        print()
+        print('Experiment ID:', exp_id)
+        experiment_dir = '{}/{}'.format(parent_dir, exp_id)
+        os.makedirs(experiment_dir, exist_ok=True)
+
+        train_x, train_y, test_x, test_y, _ = utils.basic_train_test(mu0, sigma0, mu1, sigma1,
+                                                                     plot_dir=experiment_dir,
+                                                                     log_reg=True)
+
+        # [(flip probability, [(start of batch, end of batch - exclusive)])]
+        flip_settings = [
+            (0.1, [(10 * BATCH_SIZE, 15 * BATCH_SIZE), (66 * BATCH_SIZE, 71 * BATCH_SIZE)]),
+            (0.25, [(30 * BATCH_SIZE, 35 * BATCH_SIZE), (46 * BATCH_SIZE, 51 * BATCH_SIZE)]),
+            (0.5, [(39 * BATCH_SIZE, 42 * BATCH_SIZE)]),
+        ]
+        for flip_proba, poisoned_batch_settings in flip_settings:
+            for start_idx, end_idx in poisoned_batch_settings:
+                train_y = utils.flip_labels(train_y, start_idx, end_idx, flip_proba, copy=False)
+        poisoned_batch_mask_01 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+        poisoned_batch_mask_025 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+        poisoned_batch_mask_05 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+        poisoned_batch_mask_01[10:15] = True
+        poisoned_batch_mask_01[66:71] = True
+        poisoned_batch_mask_025[30:35] = True
+        poisoned_batch_mask_025[46:51] = True
+        poisoned_batch_mask_05[39:42] = True
+        poisoned_batch_mask = poisoned_batch_mask_01 + poisoned_batch_mask_025 + poisoned_batch_mask_05
+        assert sum(poisoned_batch_mask) == 23  # 23 poisoned batches in total.
+
+        dense_nn = dense.DenseNN(parent_dir=experiment_dir,
+                                 name=exp_id,
+                                 input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
+                                 classes=(0, 1), batch_size=BATCH_SIZE,
+                                 mmap_normalise=False)
+        model_dir = dense_nn.model_dir
+        print('Model dir:', model_dir)
+
+        true_cluster_masks = (~poisoned_batch_mask, poisoned_batch_mask)  # Just for 2 clusters.
+        pred_cluster_labels_by_epoch = []  # Just for 2 clusters.
+        cluster_names = ('No poisoning', 'Poisoned')
+        cluster_colours = ('blue', 'red')
+        mmap_pca_by_epoch = []
+
+        for epoch in range(NUM_EPOCHS):
+            current_epoch = len(dense_nn.epoch_mmaps) + 1
+
+            dense_nn.fit(train_x, train_y,
+                         validation_data=(test_x, test_y), batch_size=BATCH_SIZE, num_epochs=1, continue_training=True)
+
+            # Model is loaded during fit(). Start from scratch every time.
+            assert len(dense_nn.epoch_mmaps) == epoch + 1
+
+            mmap, _, _ = dense_nn.epoch_mmaps[-1]  # mmap mush already be demeaned here.
+            assert mmap.shape[0] == NUM_TRAIN_BATCHES
+
+            pca = PCA(n_components=3)
+            mmap_pca = pca.fit_transform(mmap)
+            mmap_pca_by_epoch.append(mmap_pca)
+            explained_var = [round(val, 5) for val in pca.explained_variance_]
+            singular_values = [round(val, 5) for val in pca.singular_values_]
+
+            # Try to cluster into 2 clusters.
+            kmeans = KMeans(n_clusters=2, random_state=0).fit(mmap_pca)
+            pred_cluster_masks = [kmeans.labels_ == i for i in range(2)]
+            pred_cluster_labels_by_epoch.append(kmeans.labels_)
+
+            # Components 1 and 2.
+            _plot_mmap_pca(mmap_pca, current_epoch, true_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 0, 1, model_dir, is_true=True)
+            _plot_mmap_pca(mmap_pca, current_epoch, pred_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 0, 1, model_dir, is_true=False)
+
+            # Components 1 and 3.
+            _plot_mmap_pca(mmap_pca, current_epoch, true_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 0, 2, model_dir, is_true=True)
+            _plot_mmap_pca(mmap_pca, current_epoch, pred_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 0, 2, model_dir, is_true=False)
+
+            # Components 2 and 3.
+            _plot_mmap_pca(mmap_pca, current_epoch, true_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 1, 2, model_dir, is_true=True)
+            _plot_mmap_pca(mmap_pca, current_epoch, pred_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 1, 2, model_dir, is_true=False)
+
+        _cluster_analysis_2(mmap_pca_by_epoch, pred_cluster_labels_by_epoch, cluster_names, cluster_colours, model_dir)
+
+
 def main():
     # gaussian5a_batch_corr()
     # gaussian5b_batch_corr()
     # gaussian7a_mmap_pca()
-    gaussian7b_mmap_pca()
+    # gaussian7b_mmap_pca()
+    gaussian8a_mmap_pca_2_clusters()
+    gaussian8b_mmap_pca_2_clusters()
     pass
 
 
