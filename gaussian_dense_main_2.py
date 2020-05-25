@@ -433,6 +433,7 @@ def _cluster_analysis_2(mmap_pca_by_epoch,
     for epoch_idx in range(1, len(pred_cluster_labels_by_epoch)):
         labels = pred_cluster_labels_by_epoch[epoch_idx]
         ari.append(adjusted_rand_score(prev_labels, labels))
+        prev_labels = labels
     plt.title('Adjusted Rand Index - comparing labels from epochs i and i + 1')
     plt.xlabel('Epoch')
     plt.ylabel('ARI')
