@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle as pkl
 from itertools import cycle
+from numpy.linalg import norm
 from numpy.random import multivariate_normal
 from sklearn.linear_model import LogisticRegression
 
@@ -44,6 +45,43 @@ def _vstack(seq, shuffle=True):
     return x, y
 
 
+def _plot_2d(train_x, train_y, train_batch_id, test_x, test_y, plot_dir,
+             name='data', sample=0.1, extra_x=None, extra_y=None):
+    # Plot first two components of the two Gaussians.
+    sample_idx = np.random.choice(np.arange(train_x.shape[0]), replace=False, size=int(sample * len(train_x)))
+    sample_idx = sorted(sample_idx)
+    train_x_sample = train_x[sample_idx]
+    train_y_sample = train_y[sample_idx]
+    tmp = train_x_sample[train_y_sample[:, 0] == 1]
+    plt.scatter(tmp[:, 0], tmp[:, 1], color='blue', s=1, label='Class 0')
+    tmp = train_x_sample[train_y_sample[:, 1] == 1]
+    plt.scatter(tmp[:, 0], tmp[:, 1], color='red', s=1, label='Class 1')
+
+    if extra_x is not None and extra_y is not None:
+        for i in range(len(extra_x)):
+            tmp = extra_x[i][extra_y[i][:, 0] == 1]
+            plt.scatter(tmp[:, 0], tmp[:, 1], color='blue', s=1, marker='x')
+            tmp = extra_x[i][extra_y[i][:, 1] == 1]
+            plt.scatter(tmp[:, 0], tmp[:, 1], color='red', s=1, marker='x')
+
+    plt.xlabel('Component 0')
+    plt.ylabel('Component 1')
+    plt.legend()
+    plt.title('Data - first 2 components')
+    plt.savefig('{}/{}.png'.format(plot_dir, name), dpi=150)
+    plt.gcf().clear()
+
+    # Save the data for easier debugging.
+    with open('{}/{}.pkl'.format(plot_dir, name), 'wb') as f:
+        pkl.dump({
+            'train_x': train_x,
+            'train_y': train_y,
+            'test_x': test_x,
+            'test_y': test_y,
+            'train_batch_id': train_batch_id,
+        }, f)
+
+
 def basic_train_test(mu_0, sigma_0, mu_1, sigma_1, plot_dir=None,
                      log_reg=False, enforce_50_50=True):
     """
@@ -76,6 +114,8 @@ def basic_train_test(mu_0, sigma_0, mu_1, sigma_1, plot_dir=None,
             batches.append(batch)
         train_x, train_y = _vstack(batches, shuffle=False)
 
+    assert train_set_size == len(train_x) // 2
+
     test_x, test_y = _vstack([(test_x_0, test_y_0),
                               (test_x_1, test_y_1)],
                              shuffle=True)
@@ -86,32 +126,7 @@ def basic_train_test(mu_0, sigma_0, mu_1, sigma_1, plot_dir=None,
         train_batch_id[i * BATCH_SIZE:((i + 1) * BATCH_SIZE)] = i
 
     if plot_dir:
-        # Plot first two components of the two Gaussians.
-        # train_set_size is per class, hence sample 10% of all data.
-        sample_idx = np.random.choice(np.arange(train_x.shape[0]), replace=False, size=int(0.2 * train_set_size))
-        sample_idx = sorted(sample_idx)
-        train_x_sample = train_x[sample_idx]
-        train_y_sample = train_y[sample_idx]
-        tmp = train_x_sample[train_y_sample[:, 0] == 1]
-        plt.scatter(tmp[:, 0], tmp[:, 1], color='blue', s=1, label='Class 0')
-        tmp = train_x_sample[train_y_sample[:, 1] == 1]
-        plt.scatter(tmp[:, 0], tmp[:, 1], color='red', s=1, label='Class 1')
-        plt.xlabel('Component 0')
-        plt.ylabel('Component 1')
-        plt.legend()
-        plt.title('Data - first 2 components')
-        plt.savefig('{}/data.png'.format(plot_dir), dpi=150)
-        plt.gcf().clear()
-
-        # Save the data for easier debugging.
-        with open('{}/data.pkl'.format(plot_dir), 'wb') as f:
-            pkl.dump({
-                'train_x': train_x,
-                'train_y': train_y,
-                'test_x': test_x,
-                'test_y': test_y,
-                'train_batch_id': train_batch_id,
-            }, f)
+        _plot_2d(train_x, train_y, train_batch_id, test_x, test_y, plot_dir, name='data')
 
         if log_reg:
             train_y_labels = np.argmax(train_y, axis=1)
@@ -143,6 +158,31 @@ def flip_labels(orig_labels, start_idx, end_idx, flip_proba, copy=True):
     labels[idx, :] = 1 - old_labels
 
     return labels
+
+
+def flip_labels_center(train_x, train_y, start_idx, end_idx,
+                       mu0, sigma0, mu1, sigma1,
+                       flip_proba, plot_dir):
+    print('Shift center labels in the interval [{}, {}) (batches {}-{})'
+          .format(start_idx, end_idx, start_idx // BATCH_SIZE, end_idx // BATCH_SIZE))
+
+    center = (mu0 + mu1) / 2
+    std0 = sigma0[0, 0]
+    std1 = sigma1[0, 0]
+    std = np.eye(INPUT_DIM, dtype=np.float64) * min(std0, std1) / 2
+
+    # Flip the class with the highest std.
+    flip_class = 0 if std0 >= std1 else 1
+
+    idx = np.random.choice(np.arange(start_idx, end_idx),
+                           size=int(flip_proba * (end_idx - start_idx)),
+                           replace=False)
+
+    x, y = _generate_data(center, std, flip_class, len(idx) * 3)  # Sample enough data.
+    to_replace = idx[np.argmax(train_y[idx], axis=1) == flip_class]
+    train_x[to_replace] = x[:len(to_replace)]  # Labels stay the same.
+
+    return to_replace
 
 
 def remove_batches(xs, ys, batches_to_remove, train_batch_id):

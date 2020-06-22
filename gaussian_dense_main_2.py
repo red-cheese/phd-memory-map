@@ -428,18 +428,18 @@ def _cluster_analysis_2(mmap_pca_by_epoch,
     plt.gcf().clear()
 
     # Adjusted Rand Index - comparing labels from epochs i and i + 1.
-    prev_labels = pred_cluster_labels_by_epoch[0]
-    ari = []
-    for epoch_idx in range(1, len(pred_cluster_labels_by_epoch)):
-        labels = pred_cluster_labels_by_epoch[epoch_idx]
-        ari.append(adjusted_rand_score(prev_labels, labels))
-        prev_labels = labels
-    plt.title('Adjusted Rand Index - comparing labels from epochs i and i + 1')
-    plt.xlabel('Epoch')
-    plt.ylabel('ARI')
-    plt.plot(list(range(2, NUM_EPOCHS + 1)), ari, color='blue')
-    plt.savefig('./{}/ari_2_clusters.png'.format(model_dir), dpi=150)
-    plt.gcf().clear()
+    # prev_labels = pred_cluster_labels_by_epoch[0]
+    # ari = []
+    # for epoch_idx in range(1, len(pred_cluster_labels_by_epoch)):
+    #     labels = pred_cluster_labels_by_epoch[epoch_idx]
+    #     ari.append(adjusted_rand_score(prev_labels, labels))
+    #     prev_labels = labels
+    # plt.title('Adjusted Rand Index - comparing labels from epochs i and i + 1')
+    # plt.xlabel('Epoch')
+    # plt.ylabel('ARI')
+    # plt.plot(list(range(2, NUM_EPOCHS + 1)), ari, color='blue')
+    # plt.savefig('./{}/ari_2_clusters.png'.format(model_dir), dpi=150)
+    # plt.gcf().clear()
 
 
 def _plot_mmap_pca(mmap_pca, epoch,
@@ -711,9 +711,12 @@ def gaussian8a_mmap_pca_2_clusters():
 
 
 def gaussian8b_mmap_pca_2_clusters():
-    parent_dir = 'gaussian8b_mmap_pca_2_clusters'
+    parent_dir = 'gaussian8b_mmap_pca_2_clusters_center'
 
     for exp_id, mu0, sigma0, mu1, sigma1 in DISTRIB_PARAMS:
+        if all(mu0 == mu1):  # Hack to skip the last 2 examples.
+            continue
+
         print()
         print('==============================')
         print()
@@ -731,9 +734,19 @@ def gaussian8b_mmap_pca_2_clusters():
             (0.25, [(30 * BATCH_SIZE, 35 * BATCH_SIZE), (46 * BATCH_SIZE, 51 * BATCH_SIZE)]),
             (0.5, [(39 * BATCH_SIZE, 42 * BATCH_SIZE)]),
         ]
+        extra_plot_x = []
+        extra_plot_y = []
         for flip_proba, poisoned_batch_settings in flip_settings:
             for start_idx, end_idx in poisoned_batch_settings:
-                train_y = utils.flip_labels(train_y, start_idx, end_idx, flip_proba, copy=False)
+                # train_y = utils.flip_labels(train_y, start_idx, end_idx, flip_proba, copy=False)
+
+                # Different type of poisoning: center boundary poisoning.
+                changed_idx = utils.flip_labels_center(train_x, train_y, start_idx, end_idx, mu0, sigma0, mu1, sigma1,
+                                                       flip_proba, plot_dir=experiment_dir)
+                extra_plot_x.append(train_x[changed_idx])
+                extra_plot_y.append(train_y[changed_idx])
+        utils._plot_2d(train_x, train_y, None, None, None, experiment_dir, name='data_poison_center',
+                       extra_x=extra_plot_x, extra_y=extra_plot_y)
         poisoned_batch_mask_01 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
         poisoned_batch_mask_025 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
         poisoned_batch_mask_05 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
@@ -808,7 +821,7 @@ def main():
     # gaussian5b_batch_corr()
     # gaussian7a_mmap_pca()
     # gaussian7b_mmap_pca()
-    gaussian8a_mmap_pca_2_clusters()
+    # gaussian8a_mmap_pca_2_clusters()
     gaussian8b_mmap_pca_2_clusters()
     pass
 
