@@ -9,6 +9,7 @@ import os
 import seaborn as sns
 from numpy.linalg import matrix_rank, norm
 from sklearn.cluster import KMeans
+from sklearn.covariance import EllipticEnvelope
 from sklearn.decomposition import PCA
 from sklearn.metrics import adjusted_rand_score, silhouette_score
 
@@ -420,7 +421,24 @@ def _cluster_analysis_2(mmap_pca_by_epoch,
     for epoch_idx, labels in enumerate(pred_cluster_labels_by_epoch):
         s_score = silhouette_score(mmap_pca_by_epoch[epoch_idx], labels)
         silhouette_scores.append(s_score)
-    plt.title('Silhouette scores (2 predicted clusters) by epoch')
+
+    # Consistency score (unweighted).
+    silhouette_scores = np.array(silhouette_scores)
+    ups_values = silhouette_scores[1:] - silhouette_scores[:-1]
+    ups = ups_values >= 0
+    consistency_score = sum(ups) / len(ups)
+
+    # Consistency score (weighted).
+    ups_w = ups_values / sum(np.abs(ups_values))
+    consistency_score_weighted = np.dot(ups, ups_w)
+
+    # Area under curve.
+    auc = np.trapz(silhouette_scores)
+
+    plt.title('Silhouette scores (2 predicted clusters) by epoch\n'
+              'Consistency score - unweighted: {0:.2f}, weighted: {1:.2f}\n'
+              'AUC: {2:.2f}'
+              .format(consistency_score, consistency_score_weighted, auc))
     plt.xlabel('Epoch')
     plt.ylabel('Score')
     plt.plot(list(range(1, NUM_EPOCHS + 1)), silhouette_scores, color='blue')
@@ -816,13 +834,264 @@ def gaussian8b_mmap_pca_2_clusters():
         _cluster_analysis_2(mmap_pca_by_epoch, pred_cluster_labels_by_epoch, cluster_names, cluster_colours, model_dir)
 
 
+###
+
+
+def gaussian9a_mmap_pca_elliptic_envelope():
+    pass
+
+
+def gaussian9b_mmap_pca_elliptic_envelope():
+    parent_dir = 'gaussian9b_mmap_pca_elliptic'
+
+    for exp_id, mu0, sigma0, mu1, sigma1 in DISTRIB_PARAMS[:1]:
+        print()
+        print('==============================')
+        print()
+        print('Experiment ID:', exp_id)
+        experiment_dir = '{}/{}'.format(parent_dir, exp_id)
+        os.makedirs(experiment_dir, exist_ok=True)
+
+        train_x, train_y, test_x, test_y, train_batch_id = utils.basic_train_test(
+            mu0, sigma0, mu1, sigma1, plot_dir=experiment_dir)
+
+        # [(flip probability, [(start of batch, end of batch - exclusive)])]
+        flip_settings = [
+            (0.1, [(10 * BATCH_SIZE, 15 * BATCH_SIZE), (66 * BATCH_SIZE, 71 * BATCH_SIZE)]),
+            (0.25, [(30 * BATCH_SIZE, 35 * BATCH_SIZE), (46 * BATCH_SIZE, 51 * BATCH_SIZE)]),
+            (0.5, [(39 * BATCH_SIZE, 42 * BATCH_SIZE)]),
+        ]
+        for flip_proba, poisoned_batch_settings in flip_settings:
+            for start_idx, end_idx in poisoned_batch_settings:
+                train_y = utils.flip_labels(train_y, start_idx, end_idx, flip_proba, copy=False)
+        utils._plot_2d(train_x, train_y, train_batch_id, test_x, test_y, plot_dir=experiment_dir, name='data_poisoned')
+
+        poisoned_batch_mask_01 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+        poisoned_batch_mask_025 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+        poisoned_batch_mask_05 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+        poisoned_batch_mask_01[10:15] = True
+        poisoned_batch_mask_01[66:71] = True
+        poisoned_batch_mask_025[30:35] = True
+        poisoned_batch_mask_025[46:51] = True
+        poisoned_batch_mask_05[39:42] = True
+        poisoned_batch_mask = poisoned_batch_mask_01 + poisoned_batch_mask_025 + poisoned_batch_mask_05
+        assert sum(poisoned_batch_mask) == 23  # 23 poisoned batches in total.
+
+        dense_nn = dense.DenseNN(parent_dir=experiment_dir,
+                                 name=exp_id,
+                                 input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
+                                 classes=(0, 1), batch_size=BATCH_SIZE,
+                                 mmap_normalise=False)
+        model_dir = dense_nn.model_dir
+        print('Model dir:', model_dir)
+
+        true_labels = (~poisoned_batch_mask, poisoned_batch_mask)
+        pred_labels_by_epoch = []  # For outliers.
+        label_names = ('No poisoning', 'Poisoned')
+        label_colours = ('blue', 'red')
+        mmap_pca_by_epoch = []
+
+        for epoch in range(NUM_EPOCHS):
+            current_epoch = len(dense_nn.epoch_mmaps) + 1
+
+            dense_nn.fit(train_x, train_y,
+                         validation_data=(test_x, test_y), batch_size=BATCH_SIZE, num_epochs=1, continue_training=True)
+
+            # Model is loaded during fit(). Start from scratch every time.
+            assert len(dense_nn.epoch_mmaps) == epoch + 1
+
+            mmap, _, _ = dense_nn.epoch_mmaps[-1]  # mmap mush already be demeaned here.
+            assert mmap.shape[0] == NUM_TRAIN_BATCHES
+
+            pca = PCA(n_components=2)
+            mmap_pca = pca.fit_transform(mmap)
+            mmap_pca_by_epoch.append(mmap_pca)
+            explained_var = [round(val, 5) for val in pca.explained_variance_]
+            singular_values = [round(val, 5) for val in pca.singular_values_]
+
+            # Try to detect outliers.
+            # EllipticEnvelop fits a Gaussian to the data. Suggest that 5% of batches are poisonous.
+            ell = EllipticEnvelope(contamination=0.05)
+            ell.fit(mmap_pca)
+            preds = ell.predict(mmap_pca) == -1
+            pred_labels_by_epoch.append(preds)
+
+            # Components 1 and 2.
+            _plot_mmap_pca(mmap_pca, current_epoch, true_labels, label_names, label_colours,
+                           explained_var, singular_values, 0, 1, model_dir, is_true=True)
+            _plot_mmap_pca(mmap_pca, current_epoch, (~preds, preds), label_names, label_colours,
+                           explained_var, singular_values, 0, 1, model_dir, is_true=False)
+
+        # Plot precision and recall by epoch.
+        prec_by_epoch = []
+        rec_by_epoch = []
+        for preds in pred_labels_by_epoch:
+            tp = sum(preds & poisoned_batch_mask)
+            fp = sum(preds & (~poisoned_batch_mask))
+            fn = sum((~preds) & poisoned_batch_mask)
+            prec_by_epoch.append(tp / (tp + fp))
+            rec_by_epoch.append(tp / (tp + fn))
+        plt.title('Precision and recall by epoch')
+        plt.xlabel('Epoch')
+        plt.ylabel('Value')
+        plt.plot(np.arange(1, NUM_EPOCHS + 1), prec_by_epoch, label='Precision', color='green')
+        plt.plot(np.arange(1, NUM_EPOCHS + 1), rec_by_epoch, label='Recall', color='blue')
+        plt.legend()
+        plt.savefig('./{}/prec_rec_by_epoch.png'.format(model_dir), dpi=150)
+        plt.gcf().clear()
+
+
+def gaussian10a_mmap_pca_2_clusters_score():
+    parent_dir = 'gaussian10a_mmap_pca_2_clusters_score'
+
+    for exp_id, mu0, sigma0, mu1, sigma1 in DISTRIB_PARAMS:
+        print()
+        print('==============================')
+        print()
+        print('Experiment ID:', exp_id)
+        experiment_dir = '{}/{}'.format(parent_dir, exp_id)
+        os.makedirs(experiment_dir, exist_ok=True)
+
+        train_x, train_y, test_x, test_y, train_batch_id = utils.basic_train_test(
+            mu0, sigma0, mu1, sigma1, plot_dir=experiment_dir)
+
+        dense_nn = dense.DenseNN(parent_dir=experiment_dir,
+                                 name=exp_id,
+                                 input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
+                                 classes=(0, 1), batch_size=BATCH_SIZE,
+                                 mmap_normalise=False)
+        model_dir = dense_nn.model_dir
+        print('Model dir:', model_dir)
+
+        pred_cluster_labels_by_epoch = []  # Just for 2 clusters.
+        cluster_names = ('No poisoning', 'Poisoned')
+        cluster_colours = ('blue', 'red')
+        mmap_pca_by_epoch = []
+
+        for epoch in range(NUM_EPOCHS):
+            current_epoch = len(dense_nn.epoch_mmaps) + 1
+
+            dense_nn.fit(train_x, train_y,
+                         validation_data=(test_x, test_y), batch_size=BATCH_SIZE, num_epochs=1, continue_training=True)
+
+            # Model is loaded during fit(). Start from scratch every time.
+            assert len(dense_nn.epoch_mmaps) == epoch + 1
+
+            mmap, _, _ = dense_nn.epoch_mmaps[-1]  # mmap mush already be demeaned here.
+            assert mmap.shape[0] == NUM_TRAIN_BATCHES
+
+            pca = PCA(n_components=2)
+            mmap_pca = pca.fit_transform(mmap)
+            mmap_pca_by_epoch.append(mmap_pca)
+            explained_var = [round(val, 5) for val in pca.explained_variance_]
+            singular_values = [round(val, 5) for val in pca.singular_values_]
+
+            # Try to cluster into 2 clusters.
+            kmeans = KMeans(n_clusters=2, random_state=0).fit(mmap_pca)
+            pred_cluster_masks = [kmeans.labels_ == i for i in range(2)]
+            pred_cluster_labels_by_epoch.append(kmeans.labels_)
+
+            # Components 1 and 2.
+            _plot_mmap_pca(mmap_pca, current_epoch, pred_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 0, 1, model_dir, is_true=False)
+
+        _cluster_analysis_2(mmap_pca_by_epoch, pred_cluster_labels_by_epoch, cluster_names, cluster_colours, model_dir)
+
+
+def gaussian10b_mmap_pca_2_clusters_score():  # Confidence score based on silhouette score. For 2 clusters.
+    parent_dir = 'gaussian10b_mmap_pca_2_clusters_score'
+
+    for exp_id, mu0, sigma0, mu1, sigma1 in DISTRIB_PARAMS:
+        print()
+        print('==============================')
+        print()
+        print('Experiment ID:', exp_id)
+        experiment_dir = '{}/{}'.format(parent_dir, exp_id)
+        os.makedirs(experiment_dir, exist_ok=True)
+
+        train_x, train_y, test_x, test_y, train_batch_id = utils.basic_train_test(
+            mu0, sigma0, mu1, sigma1, plot_dir=experiment_dir)
+
+        # [(flip probability, [(start of batch, end of batch - exclusive)])]
+        flip_settings = [
+            (0.1, [(10 * BATCH_SIZE, 15 * BATCH_SIZE), (66 * BATCH_SIZE, 71 * BATCH_SIZE)]),
+            (0.25, [(30 * BATCH_SIZE, 35 * BATCH_SIZE), (46 * BATCH_SIZE, 51 * BATCH_SIZE)]),
+            (0.5, [(39 * BATCH_SIZE, 42 * BATCH_SIZE)]),
+        ]
+        for flip_proba, poisoned_batch_settings in flip_settings:
+            for start_idx, end_idx in poisoned_batch_settings:
+                train_y = utils.flip_labels(train_y, start_idx, end_idx, flip_proba, copy=False)
+        utils._plot_2d(train_x, train_y, train_batch_id, test_x, test_y, plot_dir=experiment_dir, name='data_poisoned')
+        poisoned_batch_mask_01 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+        poisoned_batch_mask_025 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+        poisoned_batch_mask_05 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+        poisoned_batch_mask_01[10:15] = True
+        poisoned_batch_mask_01[66:71] = True
+        poisoned_batch_mask_025[30:35] = True
+        poisoned_batch_mask_025[46:51] = True
+        poisoned_batch_mask_05[39:42] = True
+        poisoned_batch_mask = poisoned_batch_mask_01 + poisoned_batch_mask_025 + poisoned_batch_mask_05
+        assert sum(poisoned_batch_mask) == 23  # 23 poisoned batches in total.
+
+        dense_nn = dense.DenseNN(parent_dir=experiment_dir,
+                                 name=exp_id,
+                                 input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
+                                 classes=(0, 1), batch_size=BATCH_SIZE,
+                                 mmap_normalise=False)
+        model_dir = dense_nn.model_dir
+        print('Model dir:', model_dir)
+
+        true_cluster_masks = (~poisoned_batch_mask, poisoned_batch_mask)  # Just for 2 clusters.
+        pred_cluster_labels_by_epoch = []  # Just for 2 clusters.
+        cluster_names = ('No poisoning', 'Poisoned')
+        cluster_colours = ('blue', 'red')
+        mmap_pca_by_epoch = []
+
+        for epoch in range(NUM_EPOCHS):
+            current_epoch = len(dense_nn.epoch_mmaps) + 1
+
+            dense_nn.fit(train_x, train_y,
+                         validation_data=(test_x, test_y), batch_size=BATCH_SIZE, num_epochs=1, continue_training=True)
+
+            # Model is loaded during fit(). Start from scratch every time.
+            assert len(dense_nn.epoch_mmaps) == epoch + 1
+
+            mmap, _, _ = dense_nn.epoch_mmaps[-1]  # mmap mush already be demeaned here.
+            assert mmap.shape[0] == NUM_TRAIN_BATCHES
+
+            pca = PCA(n_components=2)
+            mmap_pca = pca.fit_transform(mmap)
+            mmap_pca_by_epoch.append(mmap_pca)
+            explained_var = [round(val, 5) for val in pca.explained_variance_]
+            singular_values = [round(val, 5) for val in pca.singular_values_]
+
+            # Try to cluster into 2 clusters.
+            kmeans = KMeans(n_clusters=2, random_state=0).fit(mmap_pca)
+            pred_cluster_masks = [kmeans.labels_ == i for i in range(2)]
+            pred_cluster_labels_by_epoch.append(kmeans.labels_)
+
+            # Components 1 and 2.
+            _plot_mmap_pca(mmap_pca, current_epoch, true_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 0, 1, model_dir, is_true=True)
+            _plot_mmap_pca(mmap_pca, current_epoch, pred_cluster_masks, cluster_names, cluster_colours,
+                           explained_var, singular_values, 0, 1, model_dir, is_true=False)
+
+        _cluster_analysis_2(mmap_pca_by_epoch, pred_cluster_labels_by_epoch, cluster_names, cluster_colours, model_dir)
+
+
+###
+
+
 def main():
     # gaussian5a_batch_corr()
     # gaussian5b_batch_corr()
     # gaussian7a_mmap_pca()
     # gaussian7b_mmap_pca()
     # gaussian8a_mmap_pca_2_clusters()
-    gaussian8b_mmap_pca_2_clusters()
+    # gaussian8b_mmap_pca_2_clusters()
+    # gaussian9b_mmap_pca_elliptic_envelope()
+    gaussian10a_mmap_pca_2_clusters_score()
+    gaussian10b_mmap_pca_2_clusters_score()
     pass
 
 
