@@ -17,7 +17,7 @@ class DenseNN(base.BaseModel):
                     input_dim, h1_dim, h2_dim,
                     batch_size, classes,
                     parent_dir=None):
-        assert classes == (0, 1)  # Binary classification
+        # assert classes == (0, 1)  # Binary classification
 
         model = Sequential()
         model.add(Dense(h1_dim, activation='relu', input_shape=(input_dim,)))

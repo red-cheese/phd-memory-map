@@ -1,0 +1,11 @@
+
+
+INPUT_DIM = 28 * 28
+BATCH_SIZE = 128
+NUM_EPOCHS = 5
+
+NUM_TRAIN_BATCHES = 80
+NUM_TEST_BATCHES = 17  # TODO arrange batches better
+
+H1_DIM = 10
+H2_DIM = 5

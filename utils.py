@@ -145,21 +145,6 @@ def basic_train_test(mu_0, sigma_0, mu_1, sigma_1, plot_dir=None,
 # =============================================================================
 
 
-def flip_labels(orig_labels, start_idx, end_idx, flip_proba, copy=True):
-    print('Flip labels in the interval [{}, {}) (batches {}-{}) with probability {}'
-          .format(start_idx, end_idx, start_idx // BATCH_SIZE, end_idx // BATCH_SIZE, flip_proba))
-
-    labels = np.copy(orig_labels) if copy else orig_labels
-
-    idx = np.random.choice(np.arange(start_idx, end_idx),
-                           size=int(flip_proba * (end_idx - start_idx)),
-                           replace=False)
-    old_labels = labels[idx, :]
-    labels[idx, :] = 1 - old_labels
-
-    return labels
-
-
 def flip_labels_center(train_x, train_y, start_idx, end_idx,
                        mu0, sigma0, mu1, sigma1,
                        flip_proba, plot_dir):
