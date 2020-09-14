@@ -22,9 +22,18 @@ def flip_labels(orig_labels, start_idx, end_idx, flip_proba, batch_size,
     return labels
 
 
-def noise(x, start_idx, end_idx, noise_std, batch_size):
+def noise(x, start_idx, end_idx, noise_std, model_dir):  # TODO Move to utils_mnist
     noise_sample = normal(0., noise_std, size=x[start_idx:end_idx].shape)
     x[start_idx:end_idx] += noise_sample
+
+    f, ax = plt.subplots(2, 5, figsize=(10, 5))
+    ax = ax.flatten()
+    for i in range(10):
+        idx = start_idx + i
+        ax[i].imshow(x[idx].reshape(28, 28))
+    plt.savefig('./{}/noise_{}.png'.format(model_dir, noise_std), dpi=150)
+    plt.gcf().clear()
+
     return x
 
 

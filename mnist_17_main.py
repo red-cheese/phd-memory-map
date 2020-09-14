@@ -164,7 +164,7 @@ def mnist17_01c_noise():
     ]
     for noise_std, poisoned_batch_settings in noise_settings:
         for start_idx, end_idx in poisoned_batch_settings:
-            train_x = utils_common.noise(train_x, start_idx, end_idx, noise_std, BATCH_SIZE)
+            train_x = utils_common.noise(train_x, start_idx, end_idx, noise_std, experiment_dir)
 
     poisoned_batch_mask_01 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
     poisoned_batch_mask_025 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
@@ -185,6 +185,7 @@ def mnist17_01c_noise():
     model_dir = dense_nn.model_dir
     print('Model dir:', model_dir)
 
+    true_cluster_labels = [~poisoned_batch_mask, poisoned_batch_mask_01, poisoned_batch_mask_025, poisoned_batch_mask_05]
     pred_cluster_labels_by_epoch = []  # Just for 2 clusters.
     cluster_names = ('No poisoning', 'Poisoned')
     cluster_colours = ('blue', 'red')
@@ -202,7 +203,7 @@ def mnist17_01c_noise():
         mmap, _, _ = dense_nn.epoch_mmaps[-1]  # mmap mush already be demeaned here.
         assert mmap.shape[0] == NUM_TRAIN_BATCHES
 
-        pca = PCA(n_components=2)
+        pca = PCA(n_components=3)
         mmap_pca = pca.fit_transform(mmap)
         mmap_pca_by_epoch.append(mmap_pca)
         explained_var = [round(val, 5) for val in pca.explained_variance_]
@@ -216,6 +217,22 @@ def mnist17_01c_noise():
         # Components 1 and 2.
         utils_common.plot_mmap_pca(mmap_pca, current_epoch, pred_cluster_masks, cluster_names, cluster_colours,
                                    explained_var, singular_values, 0, 1, model_dir, is_true=False)
+        utils_common.plot_mmap_pca(mmap_pca, current_epoch, pred_cluster_masks, cluster_names, cluster_colours,
+                                   explained_var, singular_values, 0, 2, model_dir, is_true=False)
+        utils_common.plot_mmap_pca(mmap_pca, current_epoch, pred_cluster_masks, cluster_names, cluster_colours,
+                                   explained_var, singular_values, 1, 2, model_dir, is_true=False)
+        utils_common.plot_mmap_pca(mmap_pca, current_epoch, true_cluster_labels,
+                                   ('No poisoning', 'Poisoned 01', 'Poisoned 02', 'Poisoned 03'),
+                                   ('blue', 'yellow', 'magenta', 'red'),
+                                   explained_var, singular_values, 0, 1, model_dir, is_true=True)
+        utils_common.plot_mmap_pca(mmap_pca, current_epoch, true_cluster_labels,
+                                   ('No poisoning', 'Poisoned 01', 'Poisoned 02', 'Poisoned 03'),
+                                   ('blue', 'yellow', 'magenta', 'red'),
+                                   explained_var, singular_values, 0, 2, model_dir, is_true=True)
+        utils_common.plot_mmap_pca(mmap_pca, current_epoch, true_cluster_labels,
+                                   ('No poisoning', 'Poisoned 01', 'Poisoned 02', 'Poisoned 03'),
+                                   ('blue', 'yellow', 'magenta', 'red'),
+                                   explained_var, singular_values, 1, 2, model_dir, is_true=True)
 
     utils_common.cluster_analysis_2(mmap_pca_by_epoch, pred_cluster_labels_by_epoch, cluster_names, cluster_colours,
                                     model_dir, NUM_EPOCHS)
