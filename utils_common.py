@@ -25,6 +25,7 @@ def flip_labels(orig_labels, start_idx, end_idx, flip_proba, batch_size,
 def noise(x, start_idx, end_idx, noise_std, model_dir):  # TODO Move to utils_mnist
     noise_sample = normal(0., noise_std, size=x[start_idx:end_idx].shape)
     x[start_idx:end_idx] += noise_sample
+    x = np.clip(x, a_min=0, a_max=1)
 
     f, ax = plt.subplots(2, 5, figsize=(10, 5))
     ax = ax.flatten()
