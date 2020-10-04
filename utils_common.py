@@ -38,6 +38,33 @@ def noise(x, start_idx, end_idx, noise_std, model_dir):  # TODO Move to utils_mn
     return x
 
 
+def merge(x, y, start_idx, end_idx, rate, model_dir):
+    l0 = np.argmax(y, axis=1) == 0
+    l1 = ~l0
+    total = len(x)
+
+    idx_picked = np.random.random_integers(start_idx, end_idx - 1, int(rate * (end_idx - start_idx)))
+    idx_picked = sorted(idx_picked)
+
+    mask0 = np.zeros(shape=(total,), dtype=bool)
+    mask0[idx_picked] = True
+    mask0 &= l0
+    n = sum(mask0)
+
+    x[mask0] = ((x[mask0] + x[l1][:n]) / 2)
+    x = np.clip(x, 0, 1)
+
+    f, ax = plt.subplots(2, 5, figsize=(10, 5))
+    ax = ax.flatten()
+    for i in range(10):
+        if i >= n:
+            break
+        ax[i].imshow(x[mask0][i].reshape(28, 28))
+    plt.savefig('./{}/merge_{}.png'.format(model_dir, rate), dpi=150)
+    plt.gcf().clear()
+
+    return x
+
 def plot_mmap_pca(mmap_pca, epoch,
                 cluster_masks, cluster_names, cluster_colours, cluster_explained_var, cluster_singular_values,
                 comp_x, comp_y,
@@ -47,7 +74,7 @@ def plot_mmap_pca(mmap_pca, epoch,
               'Explained variance: C{} {}, C{} {}\n'
               'Singular values: C{} {}, C{} {}'
               .format(comp_x + 1, comp_y + 1, epoch,
-                      comp_x + 1, cluster_explained_var[comp_x], comp_y + 1, cluster_singular_values[comp_y],
+                      comp_x + 1, cluster_explained_var[comp_x], comp_y + 1, cluster_explained_var[comp_y],
                       comp_x + 1, cluster_singular_values[comp_x], comp_y + 1, cluster_singular_values[comp_y]))
     plt.xlabel('Component {}'.format(comp_x + 1))
     plt.ylabel('Component {}'.format(comp_y + 1))
@@ -57,6 +84,15 @@ def plot_mmap_pca(mmap_pca, epoch,
     plt.legend()
     plt.savefig('./{}/epoch{}_{}_mmap_pca_{}-{}.png'.format(model_dir, epoch, 'true' if is_true else 'pred',
                                                             comp_x + 1, comp_y + 1), dpi=150)
+    plt.gcf().clear()
+
+
+def plot_mmap_pca_simple(mmap_pca, comp_x, comp_y, epoch, model_dir):
+    plt.title('Mmap PCA - components {} and {} - epoch {}\n'.format(comp_x + 1, comp_y + 1, epoch))
+    plt.xlabel('Component {}'.format(comp_x + 1))
+    plt.ylabel('Component {}'.format(comp_y + 1))
+    plt.scatter(mmap_pca[:, comp_x], mmap_pca[:, comp_y], marker='o', s=1)
+    plt.savefig('./{}/epoch{}_mmap_pca_{}-{}.png'.format(model_dir, epoch, comp_x + 1, comp_y + 1), dpi=150)
     plt.gcf().clear()
 
 
