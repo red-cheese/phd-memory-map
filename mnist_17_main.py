@@ -7,6 +7,7 @@ from scipy.stats import wasserstein_distance
 from sklearn.cluster import KMeans, MeanShift
 from sklearn.decomposition import PCA
 from sklearn.metrics import pairwise_distances
+from sklearn.mixture import GaussianMixture
 
 import utils_common
 import utils_mnist
@@ -331,7 +332,7 @@ def _analyse_pairwise(pw_distances, model_dir, current_epoch):
 
 
 def mnist17_02a_base_distances():
-    parent_dir = 'mnist17_02a_base_distances_v2'
+    parent_dir = 'mnist17_02a_base_distances_v3'
     experiment_dir = parent_dir
     os.makedirs(experiment_dir, exist_ok=True)
     train_x, train_y, test_x, test_y, train_batch_id = utils_mnist.basic_train_test()
@@ -364,6 +365,12 @@ def mnist17_02a_base_distances():
         pw_distances = pairwise_distances(mmap_pca)
         _analyse_pairwise(pw_distances, model_dir, current_epoch)
 
+        gmm1 = GaussianMixture(n_components=1, covariance_type='full')
+        gmm1.fit(mmap_pca)
+        gmm2 = GaussianMixture(n_components=2, covariance_type='full')
+        gmm2.fit(mmap_pca)
+        utils_common.plot_mmap_pca_gmm2(mmap_pca, 0, 1, gmm1, gmm2, current_epoch, model_dir)
+
         # Components 1 and 2.
         utils_common.plot_mmap_pca_simple(mmap_pca, 0, 1, current_epoch, model_dir)
 
@@ -380,7 +387,7 @@ def mnist17_02a_base_distances():
 
 
 def mnist17_02b_flip_distances():
-    parent_dir = 'mnist17_02b_flip_distances_v2'
+    parent_dir = 'mnist17_02b_flip_distances_v3'
     experiment_dir = parent_dir
     os.makedirs(experiment_dir, exist_ok=True)
     train_x, train_y, test_x, test_y, train_batch_id = utils_mnist.basic_train_test()
@@ -424,6 +431,12 @@ def mnist17_02b_flip_distances():
         pw_distances = pairwise_distances(mmap_pca)
         _analyse_pairwise(pw_distances, model_dir, current_epoch)
 
+        gmm1 = GaussianMixture(n_components=1, covariance_type='full')
+        gmm1.fit(mmap_pca)
+        gmm2 = GaussianMixture(n_components=2, covariance_type='full')
+        gmm2.fit(mmap_pca)
+        utils_common.plot_mmap_pca_gmm2(mmap_pca, 0, 1, gmm1, gmm2, current_epoch, model_dir)
+
         # Components 1 and 2.
         utils_common.plot_mmap_pca_simple(mmap_pca, 0, 1, current_epoch, model_dir)
 
@@ -440,7 +453,7 @@ def mnist17_02b_flip_distances():
 
 
 def mnist17_02c_noise_distances():
-    parent_dir = 'mnist17_02c_noise_distances_v2'
+    parent_dir = 'mnist17_02c_noise_distances_v3'
     experiment_dir = parent_dir
     os.makedirs(experiment_dir, exist_ok=True)
     train_x, train_y, test_x, test_y, train_batch_id = utils_mnist.basic_train_test()
@@ -484,6 +497,12 @@ def mnist17_02c_noise_distances():
         pw_distances = pairwise_distances(mmap_pca)
         _analyse_pairwise(pw_distances, model_dir, current_epoch)
 
+        gmm1 = GaussianMixture(n_components=1, covariance_type='full')
+        gmm1.fit(mmap_pca)
+        gmm2 = GaussianMixture(n_components=2, covariance_type='full')
+        gmm2.fit(mmap_pca)
+        utils_common.plot_mmap_pca_gmm2(mmap_pca, 0, 1, gmm1, gmm2, current_epoch, model_dir)
+
         # Components 1 and 2.
         utils_common.plot_mmap_pca_simple(mmap_pca, 0, 1, current_epoch, model_dir)
 
@@ -500,7 +519,7 @@ def mnist17_02c_noise_distances():
 
 
 def mnist17_02d_merge_distances():
-    parent_dir = 'mnist17_02d_merge_distances_v2'
+    parent_dir = 'mnist17_02d_merge_distances_v3'
     experiment_dir = parent_dir
     os.makedirs(experiment_dir, exist_ok=True)
     train_x, train_y, test_x, test_y, train_batch_id = utils_mnist.basic_train_test()
@@ -543,6 +562,12 @@ def mnist17_02d_merge_distances():
 
         pw_distances = pairwise_distances(mmap_pca)
         _analyse_pairwise(pw_distances, model_dir, current_epoch)
+
+        gmm1 = GaussianMixture(n_components=1, covariance_type='full')
+        gmm1.fit(mmap_pca)
+        gmm2 = GaussianMixture(n_components=2, covariance_type='full')
+        gmm2.fit(mmap_pca)
+        utils_common.plot_mmap_pca_gmm2(mmap_pca, 0, 1, gmm1, gmm2, current_epoch, model_dir)
 
         # Components 1 and 2.
         utils_common.plot_mmap_pca_simple(mmap_pca, 0, 1, current_epoch, model_dir)
@@ -640,11 +665,10 @@ def mnist17_02e_two_poison_distances():
 
 
 def main():
-    mnist17_02a_base_distances()
+    # mnist17_02a_base_distances()
     mnist17_02b_flip_distances()
     mnist17_02c_noise_distances()
     mnist17_02d_merge_distances()
-    mnist17_02e_two_poison_distances()
 
 
 if __name__ == '__main__':

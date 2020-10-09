@@ -96,6 +96,30 @@ def plot_mmap_pca_simple(mmap_pca, comp_x, comp_y, epoch, model_dir):
     plt.gcf().clear()
 
 
+def plot_mmap_pca_gmm2(mmap_pca, comp_x, comp_y, gmm1, gmm2, epoch, model_dir):
+    gmm2_labels = gmm2.predict(mmap_pca)
+    assert len(set(gmm2_labels)) == 2
+    assert sorted(set(gmm2_labels)) == [0, 1]
+
+    bic1 = gmm1.bic(mmap_pca)
+    aic1 = gmm1.aic(mmap_pca)
+    bic2 = gmm2.bic(mmap_pca)
+    aic2 = gmm2.aic(mmap_pca)
+
+    plt.title('Mmap PCA - components {} and {} - epoch {}\n'
+              'GMM 1 component BIC {} AIC {}\n'
+              'GMM 2 component BIC {} AIC {}'
+              .format(comp_x + 1, comp_y + 1, epoch, round(bic1, 5), round(aic1, 5), round(bic2, 5), round(aic2, 5)))
+    plt.xlabel('Component {}'.format(comp_x + 1))
+    plt.ylabel('Component {}'.format(comp_y + 1))
+    c1 = gmm2_labels == 0
+    c2 = gmm2_labels == 1
+    plt.scatter(mmap_pca[c1, comp_x], mmap_pca[c1, comp_y], marker='o', s=1, color='red')
+    plt.scatter(mmap_pca[c2, comp_x], mmap_pca[c2, comp_y], marker='o', s=1, color='blue')
+    plt.savefig('./{}/epoch{}_mmap_pca_gmm2_{}-{}.png'.format(model_dir, epoch, comp_x + 1, comp_y + 1), dpi=150)
+    plt.gcf().clear()
+
+
 def cluster_analysis_2(mmap_pca_by_epoch, pred_cluster_labels_by_epoch, cluster_names, cluster_colours, model_dir,
                        num_epochs):
     assert len(cluster_names) == len(cluster_colours) == 2
