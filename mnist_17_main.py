@@ -3,13 +3,19 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-from sklearn.cluster import KMeans
+from scipy.stats import wasserstein_distance
+from sklearn.cluster import KMeans, MeanShift
 from sklearn.decomposition import PCA
+from sklearn.metrics import pairwise_distances
 
 import utils_common
 import utils_mnist
 from constants_mnist import *
 from ml import dense
+
+
+MPL_COLOURS = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple',
+               'tab:brown', 'tab:pink', 'tab:gray', 'tab:olive', 'tab:cyan']
 
 
 def mnist17_01a():
@@ -296,8 +302,36 @@ def _plot_eigenvalues_by_epoch(eig_by_epoch, model_dir):
     plt.gcf().clear()
 
 
+def _compute_wasserstein_dist(mx):
+    assert mx.shape[0] == mx.shape[1]
+    res = np.zeros(shape=mx.shape)
+    for i in range(mx.shape[0]):
+        for j in range(mx.shape[1]):
+            res[i][j] = wasserstein_distance(mx[i], mx[j])
+    return res
+
+
+def _analyse_pairwise(pw_distances, model_dir, current_epoch):
+    # Note: also tried to compute EMD just on the mmap (no pca and no PW distances, i.e using mmap as pw_distances),
+    # but the results were much noisier.
+    # TODO: symmetric_kl_div in addition to wasserstein_dist
+    wasserstein_dist = _compute_wasserstein_dist(pw_distances)
+    wasserstein_dist_means = np.mean(wasserstein_dist, axis=1)
+    labels = np.arange(1, NUM_TRAIN_BATCHES + 1)
+    plt.title('Mean Wasserstein distance to all other batches')
+    plt.xlabel('Mini-batch')
+    plt.ylabel('Value')
+    clustering = MeanShift().fit(wasserstein_dist_means.reshape(-1, 1)).labels_
+    for i, cluster in enumerate(sorted(set(clustering))):
+        plt.scatter(labels[clustering == cluster], wasserstein_dist_means[clustering == cluster], s=1,
+                    label='MeanShift Cluster {}'.format(i), c=MPL_COLOURS[i])
+    plt.legend()
+    plt.savefig(os.path.join(model_dir, 'wass_means_epoch{}.png'.format(current_epoch)), dpi=150)
+    plt.gcf().clear()
+
+
 def mnist17_02a_base_distances():
-    parent_dir = 'mnist17_02a_base_distances'
+    parent_dir = 'mnist17_02a_base_distances_v2'
     experiment_dir = parent_dir
     os.makedirs(experiment_dir, exist_ok=True)
     train_x, train_y, test_x, test_y, train_batch_id = utils_mnist.basic_train_test()
@@ -309,7 +343,6 @@ def mnist17_02a_base_distances():
     model_dir = dense_nn.model_dir
     print('Model dir:', model_dir)
 
-    pairwise_distances_by_epoch = []
     eigenvalues_by_epoch = []  # Eigenvalues of the covariance matrix, obtained from PCA.
 
     for epoch in range(NUM_EPOCHS):
@@ -324,21 +357,15 @@ def mnist17_02a_base_distances():
         mmap, _, _ = dense_nn.epoch_mmaps[-1]  # mmap mush already be demeaned here.
         assert mmap.shape[0] == NUM_TRAIN_BATCHES
 
-        # 2-component PCA for pairwise distances.
-        pca = PCA(n_components=2)
+        # 3-component PCA for pairwise distances.
+        pca = PCA(n_components=3)
         mmap_pca = pca.fit_transform(mmap)
 
-        dist = _pairwise_distances(mmap_pca)
-        pairwise_distances_by_epoch.append(dist)
+        pw_distances = pairwise_distances(mmap_pca)
+        _analyse_pairwise(pw_distances, model_dir, current_epoch)
 
         # Components 1 and 2.
         utils_common.plot_mmap_pca_simple(mmap_pca, 0, 1, current_epoch, model_dir)
-
-        # Pairwise distances.
-        _plot_distances_histogram(dist, current_epoch, model_dir)
-        # Largest 20 pairwise distances.
-        with open(model_dir + '/dist_epoch{}_largest20.txt'.format(current_epoch), 'w') as f:
-            f.write('\n'.join([str(d) for d in dist[:20]]))
 
         # 10-component PCA for eigenvalues.
         pca10 = PCA(n_components=10)
@@ -352,8 +379,8 @@ def mnist17_02a_base_distances():
         f.write(str(dense_nn.model.evaluate(test_x, test_y)))
 
 
-def mnist17_02b_distances():
-    parent_dir = 'mnist17_02b_distances'
+def mnist17_02b_flip_distances():
+    parent_dir = 'mnist17_02b_flip_distances_v2'
     experiment_dir = parent_dir
     os.makedirs(experiment_dir, exist_ok=True)
     train_x, train_y, test_x, test_y, train_batch_id = utils_mnist.basic_train_test()
@@ -368,17 +395,6 @@ def mnist17_02b_distances():
         for start_idx, end_idx in poisoned_batch_settings:
             train_y = utils_common.flip_labels(train_y, start_idx, end_idx, flip_proba, BATCH_SIZE, copy=False)
 
-    poisoned_batch_mask_01 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
-    poisoned_batch_mask_025 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
-    poisoned_batch_mask_05 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
-    poisoned_batch_mask_01[10:15] = True
-    poisoned_batch_mask_01[66:71] = True
-    poisoned_batch_mask_025[30:35] = True
-    poisoned_batch_mask_025[46:51] = True
-    poisoned_batch_mask_05[39:42] = True
-    poisoned_batch_mask = poisoned_batch_mask_01 + poisoned_batch_mask_025 + poisoned_batch_mask_05
-    assert sum(poisoned_batch_mask) == 23  # 23 poisoned batches in total.
-
     dense_nn = dense.DenseNN(parent_dir=experiment_dir,
                              name=parent_dir,
                              input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
@@ -387,7 +403,6 @@ def mnist17_02b_distances():
     model_dir = dense_nn.model_dir
     print('Model dir:', model_dir)
 
-    pairwise_distances_by_epoch = []
     eigenvalues_by_epoch = []  # Eigenvalues of the covariance matrix, obtained from PCA.
 
     for epoch in range(NUM_EPOCHS):
@@ -402,21 +417,15 @@ def mnist17_02b_distances():
         mmap, _, _ = dense_nn.epoch_mmaps[-1]  # mmap mush already be demeaned here.
         assert mmap.shape[0] == NUM_TRAIN_BATCHES
 
-        # 2-component PCA for pairwise distances.
-        pca = PCA(n_components=2)
+        # 3-component PCA for pairwise distances.
+        pca = PCA(n_components=3)
         mmap_pca = pca.fit_transform(mmap)
 
-        dist = _pairwise_distances(mmap_pca)
-        pairwise_distances_by_epoch.append(dist)
+        pw_distances = pairwise_distances(mmap_pca)
+        _analyse_pairwise(pw_distances, model_dir, current_epoch)
 
         # Components 1 and 2.
         utils_common.plot_mmap_pca_simple(mmap_pca, 0, 1, current_epoch, model_dir)
-
-        # Pairwise distances.
-        _plot_distances_histogram(dist, current_epoch, model_dir)
-        # Largest 20 pairwise distances.
-        with open(model_dir + '/dist_epoch{}_largest20.txt'.format(current_epoch), 'w') as f:
-            f.write('\n'.join([str(d) for d in dist[:20]]))
 
         # 10-component PCA for eigenvalues.
         pca10 = PCA(n_components=10)
@@ -430,8 +439,8 @@ def mnist17_02b_distances():
         f.write(str(dense_nn.model.evaluate(test_x, test_y)))
 
 
-def mnist17_02c_distances():
-    parent_dir = 'mnist17_02c_distances'
+def mnist17_02c_noise_distances():
+    parent_dir = 'mnist17_02c_noise_distances_v2'
     experiment_dir = parent_dir
     os.makedirs(experiment_dir, exist_ok=True)
     train_x, train_y, test_x, test_y, train_batch_id = utils_mnist.basic_train_test()
@@ -446,17 +455,6 @@ def mnist17_02c_distances():
         for start_idx, end_idx in poisoned_batch_settings:
             train_x = utils_common.noise(train_x, start_idx, end_idx, noise_std, experiment_dir)
 
-    poisoned_batch_mask_01 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
-    poisoned_batch_mask_025 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
-    poisoned_batch_mask_05 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
-    poisoned_batch_mask_01[10:15] = True
-    poisoned_batch_mask_01[66:71] = True
-    poisoned_batch_mask_025[30:35] = True
-    poisoned_batch_mask_025[46:51] = True
-    poisoned_batch_mask_05[39:42] = True
-    poisoned_batch_mask = poisoned_batch_mask_01 + poisoned_batch_mask_025 + poisoned_batch_mask_05
-    assert sum(poisoned_batch_mask) == 23  # 23 poisoned batches in total.
-
     dense_nn = dense.DenseNN(parent_dir=experiment_dir,
                              name=parent_dir,
                              input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
@@ -465,7 +463,6 @@ def mnist17_02c_distances():
     model_dir = dense_nn.model_dir
     print('Model dir:', model_dir)
 
-    pairwise_distances_by_epoch = []
     eigenvalues_by_epoch = []  # Eigenvalues of the covariance matrix, obtained from PCA.
 
     for epoch in range(NUM_EPOCHS):
@@ -480,21 +477,15 @@ def mnist17_02c_distances():
         mmap, _, _ = dense_nn.epoch_mmaps[-1]  # mmap mush already be demeaned here.
         assert mmap.shape[0] == NUM_TRAIN_BATCHES
 
-        # 2-component PCA for pairwise distances.
-        pca = PCA(n_components=2)
+        # 3-component PCA for pairwise distances.
+        pca = PCA(n_components=3)
         mmap_pca = pca.fit_transform(mmap)
 
-        dist = _pairwise_distances(mmap_pca)
-        pairwise_distances_by_epoch.append(dist)
+        pw_distances = pairwise_distances(mmap_pca)
+        _analyse_pairwise(pw_distances, model_dir, current_epoch)
 
         # Components 1 and 2.
         utils_common.plot_mmap_pca_simple(mmap_pca, 0, 1, current_epoch, model_dir)
-
-        # Pairwise distances.
-        _plot_distances_histogram(dist, current_epoch, model_dir)
-        # Largest 20 pairwise distances.
-        with open(model_dir + '/dist_epoch{}_largest20.txt'.format(current_epoch), 'w') as f:
-            f.write('\n'.join([str(d) for d in dist[:20]]))
 
         # 10-component PCA for eigenvalues.
         pca10 = PCA(n_components=10)
@@ -509,7 +500,7 @@ def mnist17_02c_distances():
 
 
 def mnist17_02d_merge_distances():
-    parent_dir = 'mnist17_02d_merge_distances'
+    parent_dir = 'mnist17_02d_merge_distances_v2'
     experiment_dir = parent_dir
     os.makedirs(experiment_dir, exist_ok=True)
     train_x, train_y, test_x, test_y, train_batch_id = utils_mnist.basic_train_test()
@@ -524,17 +515,6 @@ def mnist17_02d_merge_distances():
         for start_idx, end_idx in poisoned_batch_settings:
             train_x = utils_common.merge(train_x, train_y, start_idx, end_idx, merge_rate, experiment_dir)
 
-    poisoned_batch_mask_01 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
-    poisoned_batch_mask_025 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
-    poisoned_batch_mask_05 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
-    poisoned_batch_mask_01[10:15] = True
-    poisoned_batch_mask_01[66:71] = True
-    poisoned_batch_mask_025[30:35] = True
-    poisoned_batch_mask_025[46:51] = True
-    poisoned_batch_mask_05[39:42] = True
-    poisoned_batch_mask = poisoned_batch_mask_01 + poisoned_batch_mask_025 + poisoned_batch_mask_05
-    assert sum(poisoned_batch_mask) == 23  # 23 poisoned batches in total.
-
     dense_nn = dense.DenseNN(parent_dir=experiment_dir,
                              name=parent_dir,
                              input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
@@ -543,7 +523,6 @@ def mnist17_02d_merge_distances():
     model_dir = dense_nn.model_dir
     print('Model dir:', model_dir)
 
-    pairwise_distances_by_epoch = []
     eigenvalues_by_epoch = []  # Eigenvalues of the covariance matrix, obtained from PCA.
 
     for epoch in range(NUM_EPOCHS):
@@ -558,21 +537,15 @@ def mnist17_02d_merge_distances():
         mmap, _, _ = dense_nn.epoch_mmaps[-1]  # mmap mush already be demeaned here.
         assert mmap.shape[0] == NUM_TRAIN_BATCHES
 
-        # 2-component PCA for pairwise distances.
-        pca = PCA(n_components=2)
+        # 3-component PCA for pairwise distances.
+        pca = PCA(n_components=3)
         mmap_pca = pca.fit_transform(mmap)
 
-        dist = _pairwise_distances(mmap_pca)
-        pairwise_distances_by_epoch.append(dist)
+        pw_distances = pairwise_distances(mmap_pca)
+        _analyse_pairwise(pw_distances, model_dir, current_epoch)
 
         # Components 1 and 2.
         utils_common.plot_mmap_pca_simple(mmap_pca, 0, 1, current_epoch, model_dir)
-
-        # Pairwise distances.
-        _plot_distances_histogram(dist, current_epoch, model_dir)
-        # Largest 20 pairwise distances.
-        with open(model_dir + '/dist_epoch{}_largest20.txt'.format(current_epoch), 'w') as f:
-            f.write('\n'.join([str(d) for d in dist[:20]]))
 
         # 10-component PCA for eigenvalues.
         pca10 = PCA(n_components=10)
@@ -587,7 +560,7 @@ def mnist17_02d_merge_distances():
 
 
 def mnist17_02e_two_poison_distances():
-    parent_dir = 'mnist17_02e_two_poison_distances'
+    parent_dir = 'mnist17_02e_two_poison_distances_v2'
     experiment_dir = parent_dir
     os.makedirs(experiment_dir, exist_ok=True)
     train_x, train_y, test_x, test_y, train_batch_id = utils_mnist.basic_train_test()
@@ -603,23 +576,14 @@ def mnist17_02e_two_poison_distances():
             train_x = utils_common.merge(train_x, train_y, start_idx, end_idx, merge_rate, experiment_dir)
 
     # 2nd type of poisoning: noise.
-    # noise_settings = [
-    #     (0.3, [(66 * BATCH_SIZE, 71 * BATCH_SIZE)]),
-    #     (0.5, [(30 * BATCH_SIZE, 35 * BATCH_SIZE)]),
-    #     (0.7, [(41 * BATCH_SIZE, 43 * BATCH_SIZE)]),
-    # ]
-    # for noise_std, poisoned_batch_settings in noise_settings:
-    #     for start_idx, end_idx in poisoned_batch_settings:
-    #         train_x = utils_common.noise(train_x, start_idx, end_idx, noise_std, experiment_dir)
-
-    flip_settings = [
-        (0.1, [(66 * BATCH_SIZE, 71 * BATCH_SIZE)]),
-        (0.25, [(30 * BATCH_SIZE, 35 * BATCH_SIZE)]),
-        (0.5, [(41 * BATCH_SIZE, 43 * BATCH_SIZE)]),
+    noise_settings = [
+        (0.3, [(66 * BATCH_SIZE, 71 * BATCH_SIZE)]),
+        (0.5, [(30 * BATCH_SIZE, 35 * BATCH_SIZE)]),
+        (0.7, [(41 * BATCH_SIZE, 43 * BATCH_SIZE)]),
     ]
-    for flip_proba, poisoned_batch_settings in flip_settings:
+    for noise_std, poisoned_batch_settings in noise_settings:
         for start_idx, end_idx in poisoned_batch_settings:
-            train_y = utils_common.flip_labels(train_y, start_idx, end_idx, flip_proba, BATCH_SIZE, copy=False)
+            train_x = utils_common.noise(train_x, start_idx, end_idx, noise_std, experiment_dir)
 
     dense_nn = dense.DenseNN(parent_dir=experiment_dir,
                              name=parent_dir,
@@ -644,12 +608,15 @@ def mnist17_02e_two_poison_distances():
         mmap, _, _ = dense_nn.epoch_mmaps[-1]  # mmap mush already be demeaned here.
         assert mmap.shape[0] == NUM_TRAIN_BATCHES
 
-        # 2-component PCA for pairwise distances.
-        pca = PCA(n_components=2)
+        # 3-component PCA for pairwise distances.
+        pca = PCA(n_components=3)
         mmap_pca = pca.fit_transform(mmap)
 
         dist = _pairwise_distances(mmap_pca)
         pairwise_distances_by_epoch.append(dist)
+
+        pw_distances = pairwise_distances(mmap_pca)
+        _analyse_pairwise(pw_distances, model_dir, current_epoch)
 
         # Components 1 and 2.
         utils_common.plot_mmap_pca_simple(mmap_pca, 0, 1, current_epoch, model_dir)
@@ -673,7 +640,11 @@ def mnist17_02e_two_poison_distances():
 
 
 def main():
-    pass
+    mnist17_02a_base_distances()
+    mnist17_02b_flip_distances()
+    mnist17_02c_noise_distances()
+    mnist17_02d_merge_distances()
+    mnist17_02e_two_poison_distances()
 
 
 if __name__ == '__main__':
