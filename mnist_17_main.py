@@ -331,8 +331,8 @@ def _analyse_pairwise(pw_distances, model_dir, current_epoch):
     plt.gcf().clear()
 
 
-def mnist17_02a_base_distances():
-    parent_dir = 'mnist17_02a_base_distances_v3'
+def mnist17_02a_base_distances(seed_value):
+    parent_dir = 'mnist17_02a_base_distances_v3_{}'.format(seed_value)
     experiment_dir = parent_dir
     os.makedirs(experiment_dir, exist_ok=True)
     train_x, train_y, test_x, test_y, train_batch_id = utils_mnist.basic_train_test()
@@ -452,8 +452,8 @@ def mnist17_02b_flip_distances():
         f.write(str(dense_nn.model.evaluate(test_x, test_y)))
 
 
-def mnist17_02c_noise_distances():
-    parent_dir = 'mnist17_02c_noise_distances_v3'
+def mnist17_02c_noise_distances(seed_value):
+    parent_dir = 'mnist17_02c_noise_distances_v3_{}'.format(seed_value)
     experiment_dir = parent_dir
     os.makedirs(experiment_dir, exist_ok=True)
     train_x, train_y, test_x, test_y, train_batch_id = utils_mnist.basic_train_test()
@@ -518,8 +518,8 @@ def mnist17_02c_noise_distances():
         f.write(str(dense_nn.model.evaluate(test_x, test_y)))
 
 
-def mnist17_02d_merge_distances():
-    parent_dir = 'mnist17_02d_merge_distances_v3'
+def mnist17_02d_merge_distances(seed_value):
+    parent_dir = 'mnist17_02d_merge_distances_v3_{}'.format(seed_value)
     experiment_dir = parent_dir
     os.makedirs(experiment_dir, exist_ok=True)
     train_x, train_y, test_x, test_y, train_batch_id = utils_mnist.basic_train_test()
@@ -665,10 +665,39 @@ def mnist17_02e_two_poison_distances():
 
 
 def main():
-    # mnist17_02a_base_distances()
-    mnist17_02b_flip_distances()
-    mnist17_02c_noise_distances()
-    mnist17_02d_merge_distances()
+    for seed_value in [0, 1, 2, 3, 4]:
+        # 1. Set `PYTHONHASHSEED` environment variable at a fixed value
+        import os
+        os.environ['PYTHONHASHSEED'] = str(seed_value)
+
+        # 2. Set `python` built-in pseudo-random generator at a fixed value
+        import random
+        random.seed(seed_value)
+
+        # 3. Set `numpy` pseudo-random generator at a fixed value
+        import numpy as np
+        np.random.seed(seed_value)
+
+        # 4. Set the `tensorflow` pseudo-random generator at a fixed value
+        import tensorflow as tf
+        tf.random.set_random_seed(seed_value)
+        tf.set_random_seed(seed_value)
+        # for later versions:
+        # tf.compat.v1.set_random_seed(seed_value)
+
+        # 5. Configure a new global `tensorflow` session
+        from keras import backend as K
+        session_conf = tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
+        sess = tf.Session(graph=tf.get_default_graph(), config=session_conf)
+        K.set_session(sess)
+        # for later versions:
+        # session_conf = tf.compat.v1.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
+        # sess = tf.compat.v1.Session(graph=tf.compat.v1.get_default_graph(), config=session_conf)
+        # tf.compat.v1.keras.backend.set_session(sess)
+
+        mnist17_02a_base_distances(seed_value)
+        mnist17_02c_noise_distances(seed_value)
+        mnist17_02d_merge_distances(seed_value)
 
 
 if __name__ == '__main__':
