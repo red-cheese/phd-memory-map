@@ -312,17 +312,40 @@ def _compute_wasserstein_dist(mx):
     return res
 
 
-def _analyse_pairwise(pw_distances, model_dir, current_epoch):
+def _cluster_score(true, pred):
+    def _get_mx(labels):
+        mx = np.zeros(shape=(l, l))
+        for i, v_i in enumerate(labels):
+            for j, v_j in enumerate(labels):
+                mx[i, j] = v_i == v_j
+        return mx
+
+    assert len(true) == len(pred)
+    l = len(true)
+
+    mx_true = _get_mx(true)
+    mx_pred = _get_mx(pred)
+
+    mx_and = (mx_true == mx_pred)
+    return mx_and.sum() / (l ** 2)
+
+
+def _analyse_pairwise(pw_distances, model_dir, current_epoch, true_labels):
     # Note: also tried to compute EMD just on the mmap (no pca and no PW distances, i.e using mmap as pw_distances),
     # but the results were much noisier.
     # TODO: symmetric_kl_div in addition to wasserstein_dist
     wasserstein_dist = _compute_wasserstein_dist(pw_distances)
     wasserstein_dist_means = np.mean(wasserstein_dist, axis=1)
     labels = np.arange(1, NUM_TRAIN_BATCHES + 1)
-    plt.title('Mean Wasserstein distance to all other batches')
+    clustering = MeanShift(min_bin_freq=3).fit(wasserstein_dist_means.reshape(-1, 1)).labels_
+
+    # Compute quality score.
+    ars = _cluster_score(true_labels, clustering)
+
+    plt.title('Mean Wasserstein distance to all other batches\nScore: {}'.format(ars))
     plt.xlabel('Mini-batch')
     plt.ylabel('Value')
-    clustering = MeanShift().fit(wasserstein_dist_means.reshape(-1, 1)).labels_
+
     for i, cluster in enumerate(sorted(set(clustering))):
         plt.scatter(labels[clustering == cluster], wasserstein_dist_means[clustering == cluster], s=1,
                     label='MeanShift Cluster {}'.format(i), c=MPL_COLOURS[i])
@@ -336,6 +359,18 @@ def mnist17_02a_base_distances(seed_value):
     experiment_dir = parent_dir
     os.makedirs(experiment_dir, exist_ok=True)
     train_x, train_y, test_x, test_y, train_batch_id = utils_mnist.basic_train_test()
+
+    # poisoned_batch_mask_01 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+    # poisoned_batch_mask_025 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+    # poisoned_batch_mask_05 = np.zeros(shape=(NUM_TRAIN_BATCHES,), dtype=np.bool)
+    # poisoned_batch_mask_01[10:15] = True
+    # poisoned_batch_mask_01[66:71] = True
+    # poisoned_batch_mask_025[30:35] = True
+    # poisoned_batch_mask_025[46:51] = True
+    # poisoned_batch_mask_05[39:42] = True
+    # poisoned_batch_mask = poisoned_batch_mask_01 + poisoned_batch_mask_025 + poisoned_batch_mask_05
+    true_batch_labels = np.zeros(shape=(NUM_TRAIN_BATCHES,))
+
     dense_nn = dense.DenseNN(parent_dir=experiment_dir,
                              name=parent_dir,
                              input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
@@ -363,7 +398,7 @@ def mnist17_02a_base_distances(seed_value):
         mmap_pca = pca.fit_transform(mmap)
 
         pw_distances = pairwise_distances(mmap_pca)
-        _analyse_pairwise(pw_distances, model_dir, current_epoch)
+        _analyse_pairwise(pw_distances, model_dir, current_epoch, true_labels=true_batch_labels)
 
         gmm1 = GaussianMixture(n_components=1, covariance_type='full')
         gmm1.fit(mmap_pca)
@@ -386,8 +421,8 @@ def mnist17_02a_base_distances(seed_value):
         f.write(str(dense_nn.model.evaluate(test_x, test_y)))
 
 
-def mnist17_02b_flip_distances():
-    parent_dir = 'mnist17_02b_flip_distances_v3'
+def mnist17_02b_flip_distances(seed_value):
+    parent_dir = 'mnist17_02b_flip_distances_v3_{}'.format(seed_value)
     experiment_dir = parent_dir
     os.makedirs(experiment_dir, exist_ok=True)
     train_x, train_y, test_x, test_y, train_batch_id = utils_mnist.basic_train_test()
@@ -410,6 +445,13 @@ def mnist17_02b_flip_distances():
     model_dir = dense_nn.model_dir
     print('Model dir:', model_dir)
 
+    true_batch_labels = np.zeros(shape=(NUM_TRAIN_BATCHES,))
+    true_batch_labels[10:15] = 1
+    true_batch_labels[66:71] = 1
+    true_batch_labels[30:35] = 2
+    true_batch_labels[46:51] = 2
+    true_batch_labels[39:42] = 3
+
     eigenvalues_by_epoch = []  # Eigenvalues of the covariance matrix, obtained from PCA.
 
     for epoch in range(NUM_EPOCHS):
@@ -429,7 +471,7 @@ def mnist17_02b_flip_distances():
         mmap_pca = pca.fit_transform(mmap)
 
         pw_distances = pairwise_distances(mmap_pca)
-        _analyse_pairwise(pw_distances, model_dir, current_epoch)
+        _analyse_pairwise(pw_distances, model_dir, current_epoch, true_labels=true_batch_labels)
 
         gmm1 = GaussianMixture(n_components=1, covariance_type='full')
         gmm1.fit(mmap_pca)
@@ -468,6 +510,13 @@ def mnist17_02c_noise_distances(seed_value):
         for start_idx, end_idx in poisoned_batch_settings:
             train_x = utils_common.noise(train_x, start_idx, end_idx, noise_std, experiment_dir)
 
+    true_batch_labels = np.zeros(shape=(NUM_TRAIN_BATCHES,))
+    true_batch_labels[10:15] = 1
+    true_batch_labels[66:71] = 1
+    true_batch_labels[30:35] = 2
+    true_batch_labels[46:51] = 2
+    true_batch_labels[39:42] = 3
+
     dense_nn = dense.DenseNN(parent_dir=experiment_dir,
                              name=parent_dir,
                              input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
@@ -495,7 +544,7 @@ def mnist17_02c_noise_distances(seed_value):
         mmap_pca = pca.fit_transform(mmap)
 
         pw_distances = pairwise_distances(mmap_pca)
-        _analyse_pairwise(pw_distances, model_dir, current_epoch)
+        _analyse_pairwise(pw_distances, model_dir, current_epoch, true_labels=true_batch_labels)
 
         gmm1 = GaussianMixture(n_components=1, covariance_type='full')
         gmm1.fit(mmap_pca)
@@ -534,6 +583,13 @@ def mnist17_02d_merge_distances(seed_value):
         for start_idx, end_idx in poisoned_batch_settings:
             train_x = utils_common.merge(train_x, train_y, start_idx, end_idx, merge_rate, experiment_dir)
 
+    true_batch_labels = np.zeros(shape=(NUM_TRAIN_BATCHES,))
+    true_batch_labels[10:15] = 1
+    true_batch_labels[66:71] = 1
+    true_batch_labels[30:35] = 2
+    true_batch_labels[46:51] = 2
+    true_batch_labels[39:42] = 3
+
     dense_nn = dense.DenseNN(parent_dir=experiment_dir,
                              name=parent_dir,
                              input_dim=INPUT_DIM, h1_dim=H1_DIM, h2_dim=H2_DIM,
@@ -561,7 +617,7 @@ def mnist17_02d_merge_distances(seed_value):
         mmap_pca = pca.fit_transform(mmap)
 
         pw_distances = pairwise_distances(mmap_pca)
-        _analyse_pairwise(pw_distances, model_dir, current_epoch)
+        _analyse_pairwise(pw_distances, model_dir, current_epoch, true_labels=true_batch_labels)
 
         gmm1 = GaussianMixture(n_components=1, covariance_type='full')
         gmm1.fit(mmap_pca)
@@ -665,7 +721,8 @@ def mnist17_02e_two_poison_distances():
 
 
 def main():
-    for seed_value in [0, 1, 2, 3, 4]:
+    # for seed_value in [0, 1, 2, 3, 4]:
+    for seed_value in [5,]:  # Smth completely new.
         # 1. Set `PYTHONHASHSEED` environment variable at a fixed value
         import os
         os.environ['PYTHONHASHSEED'] = str(seed_value)
@@ -695,7 +752,8 @@ def main():
         # sess = tf.compat.v1.Session(graph=tf.compat.v1.get_default_graph(), config=session_conf)
         # tf.compat.v1.keras.backend.set_session(sess)
 
-        mnist17_02a_base_distances(seed_value)
+        #mnist17_02a_base_distances(seed_value)
+        #mnist17_02b_flip_distances(seed_value)
         mnist17_02c_noise_distances(seed_value)
         mnist17_02d_merge_distances(seed_value)
 
