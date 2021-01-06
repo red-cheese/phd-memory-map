@@ -4,7 +4,7 @@ import numpy as np
 from keras.datasets import mnist
 from keras.utils import to_categorical
 
-from constants_mnist import *
+from mnist17.constants import *
 
 
 def _vstack(seq, shuffle=True):

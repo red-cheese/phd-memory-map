@@ -2,7 +2,6 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from numpy.random import normal
 from sklearn.metrics import silhouette_score
 
 
@@ -20,22 +19,6 @@ def flip_labels(orig_labels, start_idx, end_idx, flip_proba, batch_size,
     labels[idx, :] = 1 - old_labels
 
     return labels
-
-
-def noise(x, start_idx, end_idx, noise_std, model_dir):  # TODO Move to utils_mnist
-    noise_sample = normal(0., noise_std, size=x[start_idx:end_idx].shape)
-    x[start_idx:end_idx] += noise_sample
-    x = np.clip(x, a_min=0, a_max=1)
-
-    f, ax = plt.subplots(2, 5, figsize=(10, 5))
-    ax = ax.flatten()
-    for i in range(10):
-        idx = start_idx + i
-        ax[i].imshow(x[idx].reshape(28, 28))
-    plt.savefig('./{}/noise_{}.png'.format(model_dir, noise_std), dpi=150)
-    plt.gcf().clear()
-
-    return x
 
 
 def merge(x, y, start_idx, end_idx, rate, model_dir):
@@ -64,6 +47,7 @@ def merge(x, y, start_idx, end_idx, rate, model_dir):
     plt.gcf().clear()
 
     return x
+
 
 def plot_mmap_pca(mmap_pca, epoch,
                 cluster_masks, cluster_names, cluster_colours, cluster_explained_var, cluster_singular_values,
